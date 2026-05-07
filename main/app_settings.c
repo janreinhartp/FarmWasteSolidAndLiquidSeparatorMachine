@@ -51,12 +51,13 @@ static void update_display(void)
 
     lv_label_set_text(uic_lblSettingTitle, s_names[s_current_idx]);
 
-    char buf[32];
+    char buf[24];
     uint16_t v = s_values[s_current_idx];
     if (v % 10 == 0) {
         snprintf(buf, sizeof(buf), "%u Min", (unsigned)(v / 10));
     } else {
-        snprintf(buf, sizeof(buf), "%.1f Min", v / 10.0f);
+        /* Integer tenths — avoids pulling in float printf (~20 KB) */
+        snprintf(buf, sizeof(buf), "%u.%u Min", (unsigned)(v / 10), (unsigned)(v % 10));
     }
     lv_label_set_text(uic_lblSettingValue, buf);
 }

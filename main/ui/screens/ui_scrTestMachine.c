@@ -71,13 +71,13 @@ void ui_scrTestMachine_screen_init(void)
     lv_obj_set_style_transform_scale(ui_ProcessFlow1, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_ProcessFlowImage1 = lv_image_create(ui_ProcessFlow1);
-    lv_image_set_src(ui_ProcessFlowImage1, &ui_img_1839083635);
-    lv_obj_set_width(ui_ProcessFlowImage1, lv_pct(100));
-    lv_obj_set_height(ui_ProcessFlowImage1, lv_pct(100));
+    lv_image_set_src(ui_ProcessFlowImage1, &ui_img_process_flow_water_sepparator_png);
+    lv_obj_set_width(ui_ProcessFlowImage1, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_ProcessFlowImage1, LV_SIZE_CONTENT);
     lv_obj_set_align(ui_ProcessFlowImage1, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ProcessFlowImage1, LV_OBJ_FLAG_CLICKABLE);     /// Flags
     lv_obj_remove_flag(ui_ProcessFlowImage1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_image_set_scale(ui_ProcessFlowImage1, 75);
+    lv_image_set_scale(ui_ProcessFlowImage1, 255);
 
     ui_testSumpPump = lv_button_create(ui_ProcessFlow1);
     lv_obj_set_width(ui_testSumpPump, 50);

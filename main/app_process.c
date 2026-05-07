@@ -8,7 +8,6 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <stdio.h>
 
 /* ---- State machine states ---- */
 typedef enum {
@@ -26,6 +25,11 @@ static int64_t                s_state_enter_us = 0;
 /* Mixer cycle (used in PRESSING and DRYING) */
 static int64_t s_mixer_phase_start_us = 0;
 static bool    s_mixer_running        = false; /* true = currently ON */
+
+/* Pre-computed µs durations — updated at state entry, not every tick */
+static int64_t s_mixer_interval_us = 0;
+static int64_t s_mixer_run_us      = 0;
+static int64_t s_drying_us         = 0;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -93,6 +97,9 @@ static void enter_state(proc_state_t new_state)
         set_relay(RELAY_SCREW_PRESS, true);
         s_mixer_phase_start_us = s_state_enter_us;
         s_mixer_running        = false;
+        /* Cache timer durations once — avoid float multiply every 100 ms tick */
+        s_mixer_interval_us = (int64_t)(app_settings_get_mixer_interval_min() * 60.0f * 1e6f);
+        s_mixer_run_us      = (int64_t)(app_settings_get_mixer_run_time_min()  * 60.0f * 1e6f);
         set_status("SCREW PRESSING");
         break;
 
@@ -104,6 +111,10 @@ static void enter_state(proc_state_t new_state)
         set_relay(RELAY_HEATER,      true);
         s_mixer_phase_start_us = s_state_enter_us;
         s_mixer_running        = false;
+        /* Cache timer durations once */
+        s_mixer_interval_us = (int64_t)(app_settings_get_mixer_interval_min() * 60.0f * 1e6f);
+        s_mixer_run_us      = (int64_t)(app_settings_get_mixer_run_time_min()  * 60.0f * 1e6f);
+        s_drying_us         = (int64_t)(app_settings_get_drying_time_min()     * 60.0f * 1e6f);
         set_status("DRYING");
         break;
 
@@ -122,18 +133,16 @@ static void enter_state(proc_state_t new_state)
 
 static void tick_mixer(void)
 {
-    int64_t now         = esp_timer_get_time();
-    int64_t interval_us = (int64_t)(app_settings_get_mixer_interval_min() * 60.0f * 1e6f);
-    int64_t run_us      = (int64_t)(app_settings_get_mixer_run_time_min()  * 60.0f * 1e6f);
+    int64_t now = esp_timer_get_time();
 
     if (!s_mixer_running) {
-        if ((now - s_mixer_phase_start_us) >= interval_us) {
+        if ((now - s_mixer_phase_start_us) >= s_mixer_interval_us) {
             s_mixer_running        = true;
             s_mixer_phase_start_us = now;
             set_relay(RELAY_MIXER, true);
         }
     } else {
-        if ((now - s_mixer_phase_start_us) >= run_us) {
+        if ((now - s_mixer_phase_start_us) >= s_mixer_run_us) {
             s_mixer_running        = false;
             s_mixer_phase_start_us = now;
             set_relay(RELAY_MIXER, false);
@@ -148,15 +157,13 @@ static void tick_mixer(void)
 
 static void tick_input_tank(void)
 {
-    bool lower   = pcf8575_get_sensor(SENSOR_INPUT_TANK_LOWER);
-    bool upper   = pcf8575_get_sensor(SENSOR_INPUT_TANK_UPPER);
+    bool lower   = pcf8575_get_sensor_cached(SENSOR_INPUT_TANK_LOWER);
+    bool upper   = pcf8575_get_sensor_cached(SENSOR_INPUT_TANK_UPPER);
     bool pump_on = pcf8575_get_relay(RELAY_SUMP_PUMP);
 
     if (!pump_on && lower) {
-        /* Tank dropped to lower limit – refill from sump */
         set_relay(RELAY_SUMP_PUMP, true);
     } else if (pump_on && upper) {
-        /* Tank is full – stop */
         set_relay(RELAY_SUMP_PUMP, false);
     }
 }
@@ -170,28 +177,24 @@ static void tick_input_tank(void)
 static void tick_liquid_path(void)
 {
     /* ---- Settling tank → settling pump → filter tank ---- */
-    bool settling_upper   = pcf8575_get_sensor(SENSOR_SETTLING_UPPER);
-    bool settling_lower   = pcf8575_get_sensor(SENSOR_SETTLING_LOWER);
+    bool settling_upper   = pcf8575_get_sensor_cached(SENSOR_SETTLING_UPPER);
+    bool settling_lower   = pcf8575_get_sensor_cached(SENSOR_SETTLING_LOWER);
     bool settling_pump_on = pcf8575_get_relay(RELAY_SETTLING_PUMP);
 
     if (!settling_pump_on && settling_upper) {
-        /* Upper limit reached – pump liquid to filter tank */
         set_relay(RELAY_SETTLING_PUMP, true);
     } else if (settling_pump_on && settling_lower) {
-        /* Drained to lower limit – stop pump */
         set_relay(RELAY_SETTLING_PUMP, false);
     }
 
     /* ---- Filter tank → filter pump → treated water output ---- */
-    bool filter_upper   = pcf8575_get_sensor(SENSOR_FILTER_UPPER);
-    bool filter_lower   = pcf8575_get_sensor(SENSOR_FILTER_LOWER);
+    bool filter_upper   = pcf8575_get_sensor_cached(SENSOR_FILTER_UPPER);
+    bool filter_lower   = pcf8575_get_sensor_cached(SENSOR_FILTER_LOWER);
     bool filter_pump_on = pcf8575_get_relay(RELAY_FILTER_PUMP);
 
     if (!filter_pump_on && filter_upper) {
-        /* Filter tank full – pump treated water out */
         set_relay(RELAY_FILTER_PUMP, true);
     } else if (filter_pump_on && filter_lower) {
-        /* Drained to lower limit – stop pump */
         set_relay(RELAY_FILTER_PUMP, false);
     }
 }
@@ -207,6 +210,9 @@ static void process_task(void *arg)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(100));
 
+        /* Single I2C read shared by all sensor checks this tick */
+        pcf8575_update_sensor_cache();
+
         if (s_state == PROC_IDLE) {
             if (s_start_request) {
                 s_start_request = false;
@@ -221,7 +227,7 @@ static void process_task(void *arg)
         switch (s_state) {
 
         case PROC_FILLING:
-            if (pcf8575_get_sensor(SENSOR_INPUT_TANK_UPPER)) {
+            if (pcf8575_get_sensor_cached(SENSOR_INPUT_TANK_UPPER)) {
                 enter_state(PROC_PRESSING);
             }
             break;
@@ -229,7 +235,7 @@ static void process_task(void *arg)
         case PROC_PRESSING:
             tick_mixer();
             tick_input_tank();   /* maintain input tank level while screw press runs */
-            if (pcf8575_get_sensor(SENSOR_MIXER_UPPER)) {
+            if (pcf8575_get_sensor_cached(SENSOR_MIXER_UPPER)) {
                 /* Mixer is full of solids – stop pressing, begin drying */
                 enter_state(PROC_DRYING);  /* enter_state resets relay and mixer state */
             }
@@ -237,8 +243,7 @@ static void process_task(void *arg)
 
         case PROC_DRYING: {
             tick_mixer();
-            int64_t drying_us = (int64_t)(app_settings_get_drying_time_min() * 60.0f * 1e6f);
-            if ((esp_timer_get_time() - s_state_enter_us) >= drying_us) {
+            if ((esp_timer_get_time() - s_state_enter_us) >= s_drying_us) {
                 enter_state(PROC_DISCHARGING);
             }
             break;

@@ -14,6 +14,8 @@
  */
 static uint16_t s_state = 0xFFFF;
 static i2c_master_dev_handle_t s_dev = NULL;
+/* Cached sensor read — updated once per tick via pcf8575_update_sensor_cache() */
+static volatile uint16_t s_input_cache = 0xFFFF;
 
 /* Push the current s_state to the PCF8575 over I2C */
 static esp_err_t pcf8575_flush(void)
@@ -92,4 +94,20 @@ bool pcf8575_get_sensor(uint8_t sensor_bit)
     if (pcf8575_read_inputs(&raw) != ESP_OK) return false;
     /* active LOW: bit=0 means sensor triggered → return true */
     return !(raw & (1U << sensor_bit));
+}
+
+esp_err_t pcf8575_update_sensor_cache(void)
+{
+    uint16_t raw = 0;
+    esp_err_t err = pcf8575_read_inputs(&raw);
+    if (err == ESP_OK) {
+        s_input_cache = raw;
+    }
+    return err;
+}
+
+bool pcf8575_get_sensor_cached(uint8_t sensor_bit)
+{
+    /* active LOW: bit=0 means sensor triggered → return true */
+    return !(s_input_cache & (1U << sensor_bit));
 }

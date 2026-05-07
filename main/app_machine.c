@@ -163,8 +163,11 @@ static void sensor_poll_cb(lv_timer_t *t)
         { SENSOR_FILTER_LOWER,      &uic_LowerLimitFilterTank,   &uic_TestLowerLimitFilterTank   },
     };
 
+    /* One I2C transaction for all 7 sensor checks */
+    pcf8575_update_sensor_cache();
+
     for (int i = 0; i < (int)(sizeof(map)/sizeof(map[0])); i++) {
-        bool triggered = pcf8575_get_sensor(map[i].sensor_bit);
+        bool triggered = pcf8575_get_sensor_cached(map[i].sensor_bit);
 
         lv_obj_t *ra = *map[i].runauto;
         lv_obj_t *tm = *map[i].testmachine;

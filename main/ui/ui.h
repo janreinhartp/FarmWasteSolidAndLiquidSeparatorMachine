@@ -43,6 +43,7 @@ extern lv_obj_t * ui____initial_actions0;
 // IMAGES AND IMAGE SETS
 LV_IMG_DECLARE(ui_img_1396634952);    // assets/BatStateU-NEU-Logo 1.png
 LV_IMG_DECLARE(ui_img_1839083635);    // assets/Asset 4@4x.png
+LV_IMG_DECLARE(ui_img_process_flow_water_sepparator_png);    // assets/Process Flow Water Sepparator.png
 
 // UI INIT
 void ui_init(void);

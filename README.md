@@ -18,6 +18,130 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
 
 ---
 
+## Wiring Diagram
+
+### System Overview
+
+```
+                        ┌─────────────────────────────────┐
+                        │        ESP32-P4 (CrowPanel)      │
+                        │                                  │
+                        │  GPIO45 (SDA) ──────────────────►│─── I2C SDA
+                        │  GPIO46 (SCL) ──────────────────►│─── I2C SCL
+                        │  3.3 V ─────────────────────────►│─── VCC (PCF8575)
+                        │  GND ───────────────────────────►│─── GND
+                        └─────────────────────────────────┘
+                                        │ I2C (400 kHz)
+                                        ▼
+                        ┌─────────────────────────────────┐
+                        │   PCF8575 I/O Expander (0x20)    │
+                        │   A0=A1=A2=GND                   │
+                        │                                  │
+                        │  P00 ── P07  →  Relay Board      │
+                        │  P10 ── P16  ←  Float Sensors    │
+                        └─────────────────────────────────┘
+                              │                  │
+                    ┌─────────┘                  └───────────────┐
+                    ▼                                             ▼
+       ┌─────────────────────────┐              ┌───────────────────────────┐
+       │   8-ch Relay Board      │              │   Float Level Sensors     │
+       │   (5 V coil, active LOW)│              │   (NO, active LOW)        │
+       │                         │              │                           │
+       │  IN1 → Sump Pump        │              │  P10 Input Tank Upper     │
+       │  IN2 → Screw Press      │              │  P11 Input Tank Lower     │
+       │  IN3 → Top Gate         │              │  P12 Mixer Upper          │
+       │  IN4 → Mixer Motor      │              │  P13 Settling Upper       │
+       │  IN5 → Heater           │              │  P14 Settling Lower       │
+       │  IN6 → Bottom Gate      │              │  P15 Filter Upper         │
+       │  IN7 → Settling Pump    │              │  P16 Filter Lower         │
+       │  IN8 → Filter Pump      │              └───────────────────────────┘
+       └─────────────────────────┘
+```
+
+---
+
+### PCF8575 ↔ ESP32-P4 (I2C Bus)
+
+| PCF8575 Pin | Connects to | Note |
+|---|---|---|
+| VCC | 3.3 V | |
+| GND | GND | |
+| SDA | GPIO45 | 4.7 kΩ pull-up to 3.3 V |
+| SCL | GPIO46 | 4.7 kΩ pull-up to 3.3 V |
+| A0 | GND | I2C address bit 0 |
+| A1 | GND | I2C address bit 1 |
+| A2 | GND | I2C address bit 2 → address `0x20` |
+
+> The CrowPanel board supplies 3.3 V and GND on its expansion header. Pull-up resistors may already be present on the board; add 4.7 kΩ externally only if missing.
+
+---
+
+### PCF8575 P0x → 8-Channel Relay Board (Outputs, active LOW)
+
+| PCF8575 | Relay Ch. | Load | Relay Contact Type |
+|---|---|---|---|
+| P00 | IN1 | Sump / inlet pump | NO |
+| P01 | IN2 | Screw press motor | NO |
+| P02 | IN3 | Input tank top gate (solenoid) | NO |
+| P03 | IN4 | Mixer motor | NO |
+| P04 | IN5 | Drying heater | NO |
+| P05 | IN6 | Discharge bottom gate (solenoid) | NO |
+| P06 | IN7 | Settling tank pump | NO |
+| P07 | IN8 | Filter tank pump | NO |
+
+**Relay board power:**
+
+| Relay Board Pin | Connects to |
+|---|---|
+| VCC | 5 V (external supply) |
+| GND | Common GND |
+| IN1–IN8 | PCF8575 P00–P07 |
+| JD-VCC | 5 V (remove jumper for optocoupler isolation) |
+
+> Each relay is energised when the corresponding PCF8575 output is driven **LOW** (logic 0). The PCF8575 initialises all outputs HIGH (all relays OFF) at startup.
+
+**Relay NO contact wiring (per channel):**
+
+```
+  Load (+) ──── COM
+  Load (−) ──── NO ──── Power supply (−)
+  Power supply (+) ──── Load power (+)
+```
+
+> Use NO (normally-open) contacts so that a power loss or MCU reset leaves all loads de-energised.
+
+---
+
+### PCF8575 P1x ← Float Level Sensors (Inputs, active LOW)
+
+Each float sensor is a **two-wire normally-open (NO) reed switch** type. When the float rises to the trigger level the contact closes, pulling the input pin to GND.
+
+| PCF8575 | Sensor | Tank / Location | Pull-up |
+|---|---|---|---|
+| P10 | Input Tank Upper | Input tank — high-level cutoff | 10 kΩ to 3.3 V |
+| P11 | Input Tank Lower | Input tank — low-level refill | 10 kΩ to 3.3 V |
+| P12 | Mixer Upper | Mixer chamber — full | 10 kΩ to 3.3 V |
+| P13 | Settling Upper | Settling tank — high-level | 10 kΩ to 3.3 V |
+| P14 | Settling Lower | Settling tank — low-level | 10 kΩ to 3.3 V |
+| P15 | Filter Upper | Filter tank — high-level | 10 kΩ to 3.3 V |
+| P16 | Filter Lower | Filter tank — low-level | 10 kΩ to 3.3 V |
+
+**Per-sensor wiring:**
+
+```
+  3.3 V ──┬── 10 kΩ ──┬── PCF8575 P1x
+           │            │
+           │         [Float SW]  (NO reed switch)
+           │            │
+          GND ──────────┘
+```
+
+> Idle (float down, switch open): pin reads **1** (pulled HIGH).  
+> Triggered (float up, switch closed): pin reads **0** (pulled to GND).  
+> The PCF8575 has weak internal pull-ups, but adding **10 kΩ external** pull-ups is recommended for noise immunity on cable runs to remote tanks.
+
+---
+
 ## Relay Outputs (PCF8575 P0x — active LOW)
 
 | Bit | Define | Load |

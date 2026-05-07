@@ -87,13 +87,13 @@ void ui_scrRunAuto_screen_init(void)
     lv_obj_set_style_transform_scale(ui_ProcessFlow, 256, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_ProcessFlowImage = lv_image_create(ui_ProcessFlow);
-    lv_image_set_src(ui_ProcessFlowImage, &ui_img_1839083635);
-    lv_obj_set_width(ui_ProcessFlowImage, lv_pct(100));
-    lv_obj_set_height(ui_ProcessFlowImage, lv_pct(100));
+    lv_image_set_src(ui_ProcessFlowImage, &ui_img_process_flow_water_sepparator_png);
+    lv_obj_set_width(ui_ProcessFlowImage, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_ProcessFlowImage, LV_SIZE_CONTENT);
     lv_obj_set_align(ui_ProcessFlowImage, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_ProcessFlowImage, LV_OBJ_FLAG_CLICKABLE);     /// Flags
     lv_obj_remove_flag(ui_ProcessFlowImage, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_image_set_scale(ui_ProcessFlowImage, 75);
+    lv_image_set_scale(ui_ProcessFlowImage, 255);
 
     ui_cntnrStatus1 = lv_obj_create(ui_ProcessFlow);
     lv_obj_remove_style_all(ui_cntnrStatus1);

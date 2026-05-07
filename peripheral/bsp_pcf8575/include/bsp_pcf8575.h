@@ -70,9 +70,26 @@ esp_err_t pcf8575_read_inputs(uint16_t *state_out);
 
 /**
  * @brief  Convenience helper: return true if the given sensor is triggered.
- *         Performs a fresh I2C read each call.
+ *         Performs a fresh I2C read each call — prefer pcf8575_get_sensor_cached()
+ *         when querying multiple sensors in the same tick.
  * @param  sensor_bit  One of the SENSOR_xxx defines (8–14).
  */
 bool pcf8575_get_sensor(uint8_t sensor_bit);
+
+/**
+ * @brief  Read all 16 input pins once and store in an internal cache.
+ *         Call this once per task tick, then use pcf8575_get_sensor_cached()
+ *         for all individual sensor checks in that same tick.
+ * @return ESP_OK on success.
+ */
+esp_err_t pcf8575_update_sensor_cache(void);
+
+/**
+ * @brief  Return sensor state from the last pcf8575_update_sensor_cache() call.
+ *         No I2C transaction — instant.
+ * @param  sensor_bit  One of the SENSOR_xxx defines (8–14).
+ * @return true if sensor is triggered (active LOW = reads 0).
+ */
+bool pcf8575_get_sensor_cached(uint8_t sensor_bit);
 
 #endif /* _BSP_PCF8575_H_ */
