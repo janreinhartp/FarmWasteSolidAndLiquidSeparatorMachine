@@ -1,0 +1,17 @@
+# ESP-IDF build output
+build/
+
+# ESP-IDF managed components (downloaded automatically by idf.py)
+managed_components/
+
+# SDK configuration backup
+sdkconfig.old
+
+# VS Code local settings (keep .vscode/settings.json if it has project config)
+.vscode/
+
+# macOS metadata
+.DS_Store
+
+# Windows thumbnail cache
+Thumbs.db
