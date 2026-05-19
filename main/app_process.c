@@ -12,8 +12,8 @@
 /* ---- State machine states ---- */
 typedef enum {
     PROC_IDLE = 0,
-    PROC_FILLING,      /* TOP_GATE + SUMP_PUMP on, wait for input-tank upper sensor   */
-    PROC_PRESSING,     /* SCREW_PRESS on + periodic mixer, wait for input-tank lower   */
+    PROC_FILLING,      /* SUMP_PUMP on, wait for input-tank upper sensor               */
+    PROC_PRESSING,     /* TOP_GATE + SCREW_PRESS on, wait for mixer upper sensor       */
     PROC_DRYING,       /* HEATER on + periodic mixer, wait for drying-time timer       */
     PROC_DISCHARGING,  /* BOTTOM_GATE open 5 s, then back to IDLE                     */
 } proc_state_t;
@@ -30,6 +30,7 @@ static bool    s_mixer_running        = false; /* true = currently ON */
 static int64_t s_mixer_interval_us = 0;
 static int64_t s_mixer_run_us      = 0;
 static int64_t s_drying_us         = 0;
+static int64_t s_discharge_us      = 0;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -93,13 +94,8 @@ static void enter_state(proc_state_t new_state)
 
     case PROC_PRESSING:
         set_relay(RELAY_SUMP_PUMP,   false);  /* tank just filled; tick_input_tank takes over */
-        set_relay(RELAY_TOP_GATE,    true);   /* open mixer upper gate for screw press output */
+        set_relay(RELAY_TOP_GATE,    true);   /* open mixer upper gate to receive pressed solids */
         set_relay(RELAY_SCREW_PRESS, true);
-        s_mixer_phase_start_us = s_state_enter_us;
-        s_mixer_running        = false;
-        /* Cache timer durations once — avoid float multiply every 100 ms tick */
-        s_mixer_interval_us = (int64_t)(app_settings_get_mixer_interval_min() * 60.0f * 1e6f);
-        s_mixer_run_us      = (int64_t)(app_settings_get_mixer_run_time_min()  * 60.0f * 1e6f);
         set_status("SCREW PRESSING");
         break;
 
@@ -122,13 +118,15 @@ static void enter_state(proc_state_t new_state)
         set_relay(RELAY_HEATER,      false);
         set_relay(RELAY_BOTTOM_GATE, true);
         set_relay(RELAY_MIXER,       true);   /* run mixer to sweep out dry solids */
+        s_discharge_us = (int64_t)(app_settings_get_discharge_time_min() * 60.0f * 1e6f);
         set_status("DISCHARGING");
         break;
     }
 }
 
 /* ------------------------------------------------------------------ */
-/* Periodic mixer cycle (call each tick during PRESSING and DRYING)   */
+/* Periodic mixer cycle (call each tick during DRYING only)           */
+/* Mixer runs every mixer_interval for mixer_run_time, then pauses.   */
 /* ------------------------------------------------------------------ */
 
 static void tick_mixer(void)
@@ -233,11 +231,10 @@ static void process_task(void *arg)
             break;
 
         case PROC_PRESSING:
-            tick_mixer();
             tick_input_tank();   /* maintain input tank level while screw press runs */
             if (pcf8575_get_sensor_cached(SENSOR_MIXER_UPPER)) {
-                /* Mixer is full of solids – stop pressing, begin drying */
-                enter_state(PROC_DRYING);  /* enter_state resets relay and mixer state */
+                /* Mixer is full of solids – close upper gate, begin drying */
+                enter_state(PROC_DRYING);
             }
             break;
 
@@ -250,8 +247,7 @@ static void process_task(void *arg)
         }
 
         case PROC_DISCHARGING:
-            /* Keep discharge gate open for 5 seconds */
-            if ((esp_timer_get_time() - s_state_enter_us) >= 5000000LL) {
+            if ((esp_timer_get_time() - s_state_enter_us) >= s_discharge_us) {
                 enter_state(PROC_IDLE);
             }
             break;

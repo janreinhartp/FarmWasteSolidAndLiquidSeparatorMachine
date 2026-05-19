@@ -28,6 +28,7 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
                         │                                  │
                         │  GPIO45 (SDA) ──────────────────►│─── I2C SDA
                         │  GPIO46 (SCL) ──────────────────►│─── I2C SCL
+                        │  GPIO3  (~INT)◄─────────────────►│─── PCF8575 ~INT
                         │  3.3 V ─────────────────────────►│─── VCC (PCF8575)
                         │  GND ───────────────────────────►│─── GND
                         └─────────────────────────────────┘
@@ -39,6 +40,7 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
                         │                                  │
                         │  P00 ── P07  →  Relay Board      │
                         │  P10 ── P16  ←  Float Sensors    │
+                        │  ~INT        →  GPIO3 (IRQ)      │
                         └─────────────────────────────────┘
                               │                  │
                     ┌─────────┘                  └───────────────┐
@@ -47,14 +49,14 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
        │   8-ch Relay Board      │              │   Float Level Sensors     │
        │   (5 V coil, active LOW)│              │   (NO, active LOW)        │
        │                         │              │                           │
-       │  IN1 → Sump Pump        │              │  P10 Input Tank Upper     │
-       │  IN2 → Screw Press      │              │  P11 Input Tank Lower     │
-       │  IN3 → Top Gate         │              │  P12 Mixer Upper          │
-       │  IN4 → Mixer Motor      │              │  P13 Settling Upper       │
-       │  IN5 → Heater           │              │  P14 Settling Lower       │
-       │  IN6 → Bottom Gate      │              │  P15 Filter Upper         │
-       │  IN7 → Settling Pump    │              │  P16 Filter Lower         │
-       │  IN8 → Filter Pump      │              └───────────────────────────┘
+       │  IN1 → Heater           │              │  P10 Input Tank Lower     │
+       │  IN2 → Top Gate         │              │  P11 Input Tank Upper     │
+       │  IN3 → Bottom Gate      │              │  P12 Settling Lower       │
+       │  IN4 → Filter Pump      │              │  P13 Settling Upper       │
+       │  IN5 → Settling Pump    │              │  P14 Filter Lower         │
+       │  IN6 → Sump Pump        │              │  P15 Filter Upper         │
+       │  IN7 → Screw Press      │              │  P16 Mixer Upper          │
+       │  IN8 → Mixer Motor      │              └───────────────────────────┘
        └─────────────────────────┘
 ```
 
@@ -68,6 +70,7 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
 | GND | GND | |
 | SDA | GPIO45 | 4.7 kΩ pull-up to 3.3 V |
 | SCL | GPIO46 | 4.7 kΩ pull-up to 3.3 V |
+| ~INT | GPIO3 | 10 kΩ pull-up to 3.3 V; active-LOW, falling-edge ISR |
 | A0 | GND | I2C address bit 0 |
 | A1 | GND | I2C address bit 1 |
 | A2 | GND | I2C address bit 2 → address `0x20` |
@@ -78,16 +81,16 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
 
 ### PCF8575 P0x → 8-Channel Relay Board (Outputs, active LOW)
 
-| PCF8575 | Relay Ch. | Load | Relay Contact Type |
-|---|---|---|---|
-| P00 | IN1 | Sump / inlet pump | NO |
-| P01 | IN2 | Screw press motor | NO |
-| P02 | IN3 | Input tank top gate (solenoid) | NO |
-| P03 | IN4 | Mixer motor | NO |
-| P04 | IN5 | Drying heater | NO |
-| P05 | IN6 | Discharge bottom gate (solenoid) | NO |
-| P06 | IN7 | Settling tank pump | NO |
-| P07 | IN8 | Filter tank pump | NO |
+| PCF8575 | Relay Ch. | `#define` | Load | Relay Contact Type |
+|---|---|---|---|---|
+| P00 | IN1 | `RELAY_HEATER` | Drying heater | NO |
+| P01 | IN2 | `RELAY_TOP_GATE` | Input tank top gate (solenoid) | NO |
+| P02 | IN3 | `RELAY_BOTTOM_GATE` | Discharge bottom gate (solenoid) | NO |
+| P03 | IN4 | `RELAY_FILTER_PUMP` | Filter tank pump | NO |
+| P04 | IN5 | `RELAY_SETTLING_PUMP` | Settling tank pump | NO |
+| P05 | IN6 | `RELAY_SUMP_PUMP` | Sump / inlet pump | NO |
+| P06 | IN7 | `RELAY_SCREW_PRESS` | Screw press motor | NO |
+| P07 | IN8 | `RELAY_MIXER` | Mixer motor | NO |
 
 **Relay board power:**
 
@@ -118,13 +121,13 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 
 | PCF8575 | Sensor | Tank / Location | Pull-up |
 |---|---|---|---|
-| P10 | Input Tank Upper | Input tank — high-level cutoff | 10 kΩ to 3.3 V |
-| P11 | Input Tank Lower | Input tank — low-level refill | 10 kΩ to 3.3 V |
-| P12 | Mixer Upper | Mixer chamber — full | 10 kΩ to 3.3 V |
+| P10 | Input Tank Lower | Input tank — low-level refill | 10 kΩ to 3.3 V |
+| P11 | Input Tank Upper | Input tank — high-level cutoff | 10 kΩ to 3.3 V |
+| P12 | Settling Lower | Settling tank — low-level | 10 kΩ to 3.3 V |
 | P13 | Settling Upper | Settling tank — high-level | 10 kΩ to 3.3 V |
-| P14 | Settling Lower | Settling tank — low-level | 10 kΩ to 3.3 V |
+| P14 | Filter Lower | Filter tank — low-level | 10 kΩ to 3.3 V |
 | P15 | Filter Upper | Filter tank — high-level | 10 kΩ to 3.3 V |
-| P16 | Filter Lower | Filter tank — low-level | 10 kΩ to 3.3 V |
+| P16 | Mixer Upper | Mixer chamber — full | 10 kΩ to 3.3 V |
 
 **Per-sensor wiring:**
 
@@ -146,14 +149,14 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 
 | Bit | Define | Load |
 |---|---|---|
-| P00 | `RELAY_SUMP_PUMP` | Sump / inlet pump |
-| P01 | `RELAY_SCREW_PRESS` | Screw press motor |
-| P02 | `RELAY_TOP_GATE` | Input tank top gate |
-| P03 | `RELAY_MIXER` | Mixer motor |
-| P04 | `RELAY_HEATER` | Drying heater |
-| P05 | `RELAY_BOTTOM_GATE` | Discharge bottom gate |
-| P06 | `RELAY_SETTLING_PUMP` | Settling tank pump |
-| P07 | `RELAY_FILTER_PUMP` | Filter tank pump |
+| P00 | `RELAY_HEATER` | Drying heater |
+| P01 | `RELAY_TOP_GATE` | Input tank top gate |
+| P02 | `RELAY_BOTTOM_GATE` | Discharge bottom gate |
+| P03 | `RELAY_FILTER_PUMP` | Filter tank pump |
+| P04 | `RELAY_SETTLING_PUMP` | Settling tank pump |
+| P05 | `RELAY_SUMP_PUMP` | Sump / inlet pump |
+| P06 | `RELAY_SCREW_PRESS` | Screw press motor |
+| P07 | `RELAY_MIXER` | Mixer motor |
 
 > Relay **ON** = bit `0`; Relay **OFF** = bit `1`. Initial state `0xFF` (all off).
 
@@ -163,13 +166,13 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 
 | Bit | Define | Location |
 |---|---|---|
-| P10 | `SENSOR_INPUT_TANK_UPPER` | Input tank — upper float |
-| P11 | `SENSOR_INPUT_TANK_LOWER` | Input tank — lower float |
-| P12 | `SENSOR_MIXER_UPPER` | Mixer tank — upper float |
+| P10 | `SENSOR_INPUT_TANK_LOWER` | Input tank — lower float |
+| P11 | `SENSOR_INPUT_TANK_UPPER` | Input tank — upper float |
+| P12 | `SENSOR_SETTLING_LOWER` | Settling tank — lower float |
 | P13 | `SENSOR_SETTLING_UPPER` | Settling tank — upper float |
-| P14 | `SENSOR_SETTLING_LOWER` | Settling tank — lower float |
+| P14 | `SENSOR_FILTER_LOWER` | Filter tank — lower float |
 | P15 | `SENSOR_FILTER_UPPER` | Filter tank — upper float |
-| P16 | `SENSOR_FILTER_LOWER` | Filter tank — lower float |
+| P16 | `SENSOR_MIXER_UPPER` | Mixer tank — upper float |
 
 > Sensor **triggered** = reads `0`; **idle** = reads `1`.
 
@@ -408,9 +411,33 @@ The process will not restart until the Run Auto screen is navigated to again.
 
 ---
 
-## Sensor Polling
+## Sensor Updates (Interrupt-Driven)
 
-An LVGL timer runs every **200 ms** on the LVGL task (no lock required). It reads all 7 sensor bits via `pcf8575_get_sensor()` and sets `LV_STATE_CHECKED` on the corresponding checkbox widgets on both the **Run Auto** and **Test Machine** screens simultaneously.
+The PCF8575 `~INT` pin (GPIO3) is configured with a **falling-edge ISR**. The ISR gives a FreeRTOS binary semaphore without doing any I2C work. A dedicated `sensor_int_task` (priority 3, 3 kB stack) blocks on that semaphore and wakes immediately when any sensor input changes:
+
+```
+Float switch changes state
+        │
+        ▼  falling edge on GPIO3
+   pcf8575_isr_handler()  [IRAM, ISR context]
+        │  xSemaphoreGiveFromISR
+        ▼
+   sensor_int_task  [FreeRTOS task]
+        │  pcf8575_update_sensor_cache()  — one I2C read, no lock needed
+        │  lvgl_port_lock()
+        │  sensor_update_ui()            — update checkbox widgets on both screens
+        │  lvgl_port_unlock()
+        └─ block on semaphore again
+```
+
+If the interrupt edge is ever missed the task has a **2-second watchdog timeout** on `xSemaphoreTake`, ensuring the UI is re-synced at least every 2 s regardless.
+
+State transitions are logged via `ESP_LOGI` (tag `APP_MACHINE`) only when a sensor changes, avoiding log spam:
+
+```
+I (12345) APP_MACHINE: >>> SENSOR INPUT_TANK_UPPER        | bit  9 | -> TRIGGERED
+I (15200) APP_MACHINE: >>> SENSOR INPUT_TANK_UPPER        | bit  9 | -> CLEARED
+```
 
 ---
 
@@ -420,7 +447,7 @@ An LVGL timer runs every **200 ms** on the LVGL task (no lock required). It read
 main/
   main.c                  Boot sequence, hardware init, splash animation
   app_machine.c/h         Test Machine button callbacks, Run Auto indicators,
-                          sensor polling timer, checkbox text clearing
+                          interrupt-driven sensor task, relay logging
   app_settings.c/h        Settings screen NVS persistence and UI callbacks
   app_process.c/h         Auto process FreeRTOS state machine
   include/
@@ -439,7 +466,8 @@ peripheral/
   bsp_i2c/                I2C bus init (GPIO45/46, port 0, 400 kHz)
   bsp_extra/              GPIO extras (LED on GPIO48)
   bsp_illuminate/         LCD backlight PWM
-  bsp_pcf8575/            PCF8575 I2C I/O expander driver
+  bsp_pcf8575/            PCF8575 I2C I/O expander driver (relay control,
+                          sensor reads, ~INT GPIO ISR)
 
 managed_components/
   lvgl__lvgl              LVGL 9.2.2

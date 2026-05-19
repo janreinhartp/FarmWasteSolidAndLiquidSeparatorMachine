@@ -10,16 +10,19 @@
 #define NVS_KEY_MIX_INT  "mix_int"
 #define NVS_KEY_MIX_RT   "mix_rt"
 #define NVS_KEY_DRY_T    "dry_t"
+#define NVS_KEY_DIS_T    "dis_t"
 
 /* ---- Defaults (stored as tenths of minutes) ---- */
 #define DEFAULT_MIXER_INTERVAL   100   /* 10.0 min */
 #define DEFAULT_MIXER_RUNTIME     10   /* 1.0  min */
 #define DEFAULT_DRYING_TIME      1200  /* 120.0 min */
+#define DEFAULT_DISCHARGE_TIME     10  /* 1.0  min */
 
 typedef enum {
     SETTING_MIXER_INTERVAL = 0,
     SETTING_MIXER_RUNTIME,
     SETTING_DRYING_TIME,
+    SETTING_DISCHARGE_TIME,
     SETTING_COUNT,
 } setting_idx_t;
 
@@ -27,6 +30,7 @@ static const char * const s_names[SETTING_COUNT] = {
     "Mixer Interval",
     "Mixer Run Time",
     "Drying Time",
+    "Discharge Time",
 };
 
 /* Values in tenths of minutes */
@@ -34,6 +38,7 @@ static uint16_t s_values[SETTING_COUNT] = {
     DEFAULT_MIXER_INTERVAL,
     DEFAULT_MIXER_RUNTIME,
     DEFAULT_DRYING_TIME,
+    DEFAULT_DISCHARGE_TIME,
 };
 
 static int s_current_idx = 0;
@@ -138,6 +143,7 @@ static void save_cb(lv_event_t *e)
         nvs_set_u16(h, NVS_KEY_MIX_INT, s_values[SETTING_MIXER_INTERVAL]);
         nvs_set_u16(h, NVS_KEY_MIX_RT,  s_values[SETTING_MIXER_RUNTIME]);
         nvs_set_u16(h, NVS_KEY_DRY_T,   s_values[SETTING_DRYING_TIME]);
+        nvs_set_u16(h, NVS_KEY_DIS_T,   s_values[SETTING_DISCHARGE_TIME]);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -168,6 +174,8 @@ void app_settings_init(void)
             s_values[SETTING_MIXER_RUNTIME]  = val;
         if (nvs_get_u16(h, NVS_KEY_DRY_T,   &val) == ESP_OK)
             s_values[SETTING_DRYING_TIME]    = val;
+        if (nvs_get_u16(h, NVS_KEY_DIS_T,   &val) == ESP_OK)
+            s_values[SETTING_DISCHARGE_TIME] = val;
         nvs_close(h);
     }
 
@@ -202,4 +210,9 @@ float app_settings_get_mixer_run_time_min(void)
 float app_settings_get_drying_time_min(void)
 {
     return s_values[SETTING_DRYING_TIME] / 10.0f;
+}
+
+float app_settings_get_discharge_time_min(void)
+{
+    return s_values[SETTING_DISCHARGE_TIME] / 10.0f;
 }

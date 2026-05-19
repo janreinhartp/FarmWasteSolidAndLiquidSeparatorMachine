@@ -2,6 +2,9 @@
 #define _BSP_PCF8575_H_
 
 #include "esp_err.h"
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -11,26 +14,26 @@
 /* ---- Relay output bit positions (P0x, low byte, active LOW) ---- */
 /* Relay ON  = write 0 to the bit
    Relay OFF = write 1 to the bit                                   */
-#define RELAY_SUMP_PUMP         0   /* P00 */
-#define RELAY_SCREW_PRESS       1   /* P01 */
-#define RELAY_TOP_GATE          2   /* P02 */
-#define RELAY_MIXER             3   /* P03 */
-#define RELAY_HEATER            4   /* P04 */
-#define RELAY_BOTTOM_GATE       5   /* P05 */
-#define RELAY_SETTLING_PUMP     6   /* P06 */
-#define RELAY_FILTER_PUMP       7   /* P07 */
+#define RELAY_HEATER            0   /* P00 */
+#define RELAY_TOP_GATE          1   /* P01 */
+#define RELAY_BOTTOM_GATE       2   /* P02 */
+#define RELAY_FILTER_PUMP       3   /* P03 */
+#define RELAY_SETTLING_PUMP     4   /* P04 */
+#define RELAY_SUMP_PUMP         5   /* P05 */
+#define RELAY_SCREW_PRESS       6   /* P06 */
+#define RELAY_MIXER             7   /* P07 */
 #define RELAY_COUNT             8
 
 /* ---- Sensor input bit positions (P1x, high byte, active LOW) ---- */
 /* Sensor TRIGGERED = pin reads 0
    Sensor IDLE      = pin reads 1                                    */
-#define SENSOR_INPUT_TANK_UPPER     8   /* P10 */
-#define SENSOR_INPUT_TANK_LOWER     9   /* P11 */
-#define SENSOR_MIXER_UPPER         10   /* P12 */
+#define SENSOR_INPUT_TANK_LOWER     8   /* P10 */
+#define SENSOR_INPUT_TANK_UPPER     9   /* P11 */
+#define SENSOR_SETTLING_LOWER      10   /* P12 */
 #define SENSOR_SETTLING_UPPER      11   /* P13 */
-#define SENSOR_SETTLING_LOWER      12   /* P14 */
+#define SENSOR_FILTER_LOWER        12   /* P14 */
 #define SENSOR_FILTER_UPPER        13   /* P15 */
-#define SENSOR_FILTER_LOWER        14   /* P16 */
+#define SENSOR_MIXER_UPPER         14   /* P16 */
 
 /* ------------------------------------------------------------------ */
 
@@ -91,5 +94,24 @@ esp_err_t pcf8575_update_sensor_cache(void);
  * @return true if sensor is triggered (active LOW = reads 0).
  */
 bool pcf8575_get_sensor_cached(uint8_t sensor_bit);
+
+/* ------------------------------------------------------------------ */
+/*  Interrupt support                                                  */
+
+/**
+ * @brief  Configure the PCF8575 ~INT GPIO and install the falling-edge ISR.
+ *         The ISR gives the semaphore from pcf8575_get_int_semaphore() each
+ *         time the INT pin falls (i.e. any input pin changes state).
+ * @param  gpio  GPIO number wired to the PCF8575 ~INT pin (e.g. GPIO_NUM_3).
+ * @return ESP_OK on success.
+ */
+esp_err_t pcf8575_int_gpio_init(gpio_num_t gpio);
+
+/**
+ * @brief  Return the binary semaphore that is given by the PCF8575 ISR.
+ *         Call xSemaphoreTake() on this to block until a sensor input changes.
+ *         Returns NULL if pcf8575_int_gpio_init() has not been called yet.
+ */
+SemaphoreHandle_t pcf8575_get_int_semaphore(void);
 
 #endif /* _BSP_PCF8575_H_ */

@@ -1,6 +1,9 @@
 #include "bsp_pcf8575.h"
 #include "bsp_i2c.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #define PCF8575_TAG    "PCF8575"
 #define PCF8575_INFO(fmt, ...)  ESP_LOGI(PCF8575_TAG, fmt, ##__VA_ARGS__)
@@ -16,6 +19,44 @@ static uint16_t s_state = 0xFFFF;
 static i2c_master_dev_handle_t s_dev = NULL;
 /* Cached sensor read — updated once per tick via pcf8575_update_sensor_cache() */
 static volatile uint16_t s_input_cache = 0xFFFF;
+
+/* ---- Interrupt support ---- */
+static SemaphoreHandle_t s_int_sem = NULL;
+
+static void IRAM_ATTR pcf8575_isr_handler(void *arg)
+{
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(s_int_sem, &woken);
+    if (woken) portYIELD_FROM_ISR();
+}
+
+esp_err_t pcf8575_int_gpio_init(gpio_num_t gpio)
+{
+    s_int_sem = xSemaphoreCreateBinary();
+    if (!s_int_sem) return ESP_ERR_NO_MEM;
+
+    const gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << gpio),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_NEGEDGE,   /* INT is active-LOW, falls on any input change */
+    };
+    esp_err_t err = gpio_config(&io_conf);
+    if (err != ESP_OK) return err;
+
+    gpio_install_isr_service(0);             /* safe to call even if already installed */
+    err = gpio_isr_handler_add(gpio, pcf8575_isr_handler, NULL);
+    if (err == ESP_OK) {
+        PCF8575_INFO("INT GPIO%d configured (falling-edge ISR)", gpio);
+    }
+    return err;
+}
+
+SemaphoreHandle_t pcf8575_get_int_semaphore(void)
+{
+    return s_int_sem;
+}
 
 /* Push the current s_state to the PCF8575 over I2C */
 static esp_err_t pcf8575_flush(void)
