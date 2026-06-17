@@ -20,7 +20,8 @@ typedef enum {
 
 static volatile proc_state_t s_state          = PROC_IDLE;
 static volatile bool          s_start_request = false;
-static int64_t                s_state_enter_us = 0;
+static int64_t                s_state_enter_us  = 0;
+static int64_t                s_process_start_us = 0;
 
 /* Mixer cycle (used in PRESSING and DRYING) */
 static int64_t s_mixer_phase_start_us = 0;
@@ -42,6 +43,45 @@ static void set_relay(uint8_t relay_num, bool on)
     pcf8575_set_relay(relay_num, on);
     if (lvgl_port_lock(1000)) {
         app_machine_update_indicator(relay_num, on);
+        lvgl_port_unlock();
+    }
+}
+
+/* Update the elapsed-time label on the Run Auto screen (HH:MM:SS). */
+static void update_time_display(void)
+{
+    if (!uic_lblCurrentStatus1) return;
+    int64_t elapsed_s = (esp_timer_get_time() - s_process_start_us) / 1000000LL;
+    int h = (int)(elapsed_s / 3600);
+    int m = (int)((elapsed_s % 3600) / 60);
+    int s = (int)(elapsed_s % 60);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, m, s);
+    if (lvgl_port_lock(1000)) {
+        lv_label_set_text(uic_lblCurrentStatus1, buf);
+        lvgl_port_unlock();
+    }
+}
+
+/* Update the mixer phase label (RUN/WAIT MM:SS) — only active during DRYING. */
+static void update_mixer_display(void)
+{
+    if (!uic_lblMixerStatus) return;
+    char buf[20];
+    if (s_state != PROC_DRYING) {
+        snprintf(buf, sizeof(buf), "--");
+    } else {
+        int64_t phase_s = (esp_timer_get_time() - s_mixer_phase_start_us) / 1000000LL;
+        int m = (int)(phase_s / 60);
+        int s = (int)(phase_s % 60);
+        if (s_mixer_running) {
+            snprintf(buf, sizeof(buf), "RUN  %02d:%02d", m, s);
+        } else {
+            snprintf(buf, sizeof(buf), "WAIT %02d:%02d", m, s);
+        }
+    }
+    if (lvgl_port_lock(1000)) {
+        lv_label_set_text(uic_lblMixerStatus, buf);
         lvgl_port_unlock();
     }
 }
@@ -68,6 +108,9 @@ static void all_off_with_ui(void)
         if (uic_lblCurrentStatus) {
             lv_label_set_text(uic_lblCurrentStatus, "IDLE");
         }
+        if (uic_lblCurrentStatus1) {
+            lv_label_set_text(uic_lblCurrentStatus1, "00:00:00");
+        }
         lvgl_port_unlock();
     }
 }
@@ -88,6 +131,7 @@ static void enter_state(proc_state_t new_state)
         break;
 
     case PROC_FILLING:
+        s_process_start_us = esp_timer_get_time();  /* record overall run start */
         set_relay(RELAY_SUMP_PUMP,  true);   /* pump sludge into input tank */
         set_status("FILLING INPUT TANK");
         break;
@@ -218,6 +262,10 @@ static void process_task(void *arg)
             }
             continue;
         }
+
+        /* Update elapsed time display every tick (100 ms; label only redraws on change) */
+        update_time_display();
+        update_mixer_display();
 
         /* Liquid path active in all non-idle states */
         tick_liquid_path();

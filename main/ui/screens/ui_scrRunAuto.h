@@ -42,6 +42,8 @@ extern lv_obj_t * ui_btnEmergencyStop;
 extern lv_obj_t * ui_Label9;
 extern lv_obj_t * ui_Label5;
 // CUSTOM VARIABLES
+extern lv_obj_t * uic_lblMixerStatus;
+extern lv_obj_t * uic_lblCurrentStatus1;
 extern lv_obj_t * uic_ProcessFlowControl;
 extern lv_obj_t * uic_ProcessFlowImage;
 extern lv_obj_t * uic_cntnrStatus;

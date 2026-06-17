@@ -202,7 +202,7 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 - **Stop Test** button: de-energises all relays and returns to Main Menu.
 
 ### Settings (`ui_scrSettings`)
-- Cycle through 3 settings with **Previous** / **Next** buttons.
+- Cycle through 4 settings with **Previous** / **Next** buttons.
 - Adjust value with **+** / **−** buttons.
 - Select step size with multiplier buttons: **×0.1**, **×1**, **×5** (active button highlighted green).
 - **Save** button: writes values to NVS and returns to Main Menu.
@@ -213,6 +213,7 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 | Mixer Interval | `mix_int` | 10.0 | minutes |
 | Mixer Run Time | `mix_rt` | 1.0 | minutes |
 | Drying Time | `dry_t` | 120.0 | minutes |
+| Discharge Time | `dis_t` | 1.0 | minutes |
 
 ---
 
@@ -263,7 +264,6 @@ The system has two parallel paths:
 │  PROC_PRESSING                                           │
 │  ON:  SCREW_PRESS, TOP_GATE (mixer upper gate)           │
 │  SUMP_PUMP: level-controlled by input tank floats        │
-│  MIXER: periodic cycle                                   │
 │  STATUS: "SCREW PRESSING"                                │
 │  WAIT: SENSOR_MIXER_UPPER triggered (mixer full)         │
 └──────────────────────────────────────────────────────────┘
@@ -283,9 +283,9 @@ The system has two parallel paths:
 │  OFF: HEATER                                             │
 │  ON:  BOTTOM_GATE, MIXER (sweeps solids out)             │
 │  STATUS: "DISCHARGING"                                   │
-│  WAIT: 5 seconds fixed timer                             │
+│  WAIT: Discharge Time setting elapsed                    │
 └──────────────────────────────────────────────────────────┘
-                   │  5 s elapsed
+                   │  Discharge Time elapsed
                    └─────────────► back to PROC_IDLE
 ```
 
@@ -316,7 +316,6 @@ The input tank is full. The **Mixer Upper Gate** (TOP_GATE) opens to receive sol
 | `RELAY_SUMP_PUMP` | level-controlled (lower float → ON, upper float → OFF) |
 | `RELAY_TOP_GATE` | ON (mixer upper gate open) |
 | `RELAY_SCREW_PRESS` | ON |
-| `RELAY_MIXER` | periodic cycle |
 
 Exits when `SENSOR_MIXER_UPPER` is triggered (mixer chamber is full of compressed solids).
 
@@ -342,7 +341,7 @@ Heater stops. The **Bottom Gate** opens and the **Mixer** runs continuously to s
 | `RELAY_BOTTOM_GATE` | ON |
 | `RELAY_MIXER` | ON (continuous, sweeps solids out) |
 
-Fixed 5-second open time, then all relays off and returns to `PROC_IDLE`. A new cycle starts automatically the next time the Run Auto screen is navigated to.
+Runs for the **Discharge Time** setting duration (default 1.0 min, configurable), then all relays off and returns to `PROC_IDLE`. A new cycle starts automatically the next time the Run Auto screen is navigated to.
 
 ---
 

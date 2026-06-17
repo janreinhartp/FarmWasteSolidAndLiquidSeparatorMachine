@@ -4,6 +4,7 @@
 #include "nvs_flash.h"
 #include "ui/screens/ui_scrSplashScreen.h"
 #include "esp_lvgl_port.h"
+#include "driver/gpio.h"
 
 /* LDO channel handle */
 static esp_ldo_channel_handle_t ldo3 = NULL;
@@ -56,23 +57,27 @@ static void system_init(void) {
     if (err != ESP_OK) init_fail_handler("I2C", err);
     MAIN_INFO("I2C init success");
 
-    // 3. Initialize touch panel (low-level driver)
+    // 3. Install GPIO ISR service once, before any driver registers a handler
+    gpio_install_isr_service(0);
+    MAIN_INFO("GPIO ISR service installed");
+
+    // 4. Initialize touch panel (low-level driver)
     MAIN_INFO("Initializing touch panel...");
     err = touch_init();
     if (err != ESP_OK) init_fail_handler("Touch", err);
     MAIN_INFO("Touch panel init success");
 
-    // 4. Initialize LCD hardware and LVGL (must initialize before turning on backlight)
+    // 5. Initialize LCD hardware and LVGL (must initialize before turning on backlight)
     err = display_init();
     if (err != ESP_OK) init_fail_handler("LCD", err);
     MAIN_INFO("LCD init success");
 
-    // 5. Turn on LCD backlight (brightness set to 100 = max)
+    // 6. Turn on LCD backlight (brightness set to 100 = max)
     err = set_lcd_blight(100);
     if (err != ESP_OK) init_fail_handler("LCD Backlight", err);
     MAIN_INFO("LCD backlight opened (brightness: 100)");
 
-    // 6. Initialize LED control GPIO (GPIO48)
+    // 7. Initialize LED control GPIO (GPIO48)
     MAIN_INFO("Initializing GPIO48 for LED...");
     err = gpio_extra_init();
     if (err != ESP_OK) init_fail_handler("GPIO48", err);
@@ -80,13 +85,13 @@ static void system_init(void) {
     gpio_extra_set_level(false);  // Initially turn off LED
     MAIN_INFO("LED initialized to OFF state");
 
-    // 7. Initialize PCF8575 relay/sensor expander
+    // 8. Initialize PCF8575 relay/sensor expander
     MAIN_INFO("Initializing PCF8575 I/O expander...");
     err = pcf8575_init();
     if (err != ESP_OK) init_fail_handler("PCF8575", err);
     MAIN_INFO("PCF8575 init success");
 
-    // 8. Initialize NVS flash (required for settings storage)
+    // 9. Initialize NVS flash (required for settings storage)
     err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();

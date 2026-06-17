@@ -22,7 +22,9 @@ lv_obj_t * uic_Heater;
 lv_obj_t * uic_BottomGate;
 lv_obj_t * uic_TopGate;
 lv_obj_t * uic_ScrewPress;
+lv_obj_t * uic_lblMixerStatus;
 lv_obj_t * uic_SumpPump;
+lv_obj_t * uic_lblCurrentStatus1;
 lv_obj_t * uic_lblCurrentStatus;
 lv_obj_t * uic_cntnrStatus;
 lv_obj_t * uic_ProcessFlowImage;
@@ -36,6 +38,9 @@ lv_obj_t * ui_Label7 = NULL;
 lv_obj_t * ui_cntnrStatus = NULL;
 lv_obj_t * ui_lblCurrentStatus = NULL;
 lv_obj_t * ui_Label6 = NULL;
+lv_obj_t * ui_cntnrMixer = NULL;
+lv_obj_t * ui_lblMixerStatus = NULL;
+lv_obj_t * ui_LabelMixer = NULL;
 lv_obj_t * ui_SumpPump = NULL;
 lv_obj_t * ui_ScrewPress = NULL;
 lv_obj_t * ui_TopGate = NULL;
@@ -140,6 +145,28 @@ void ui_scrRunAuto_screen_init(void)
     lv_label_set_text(ui_Label6, "STATUS: ");
     lv_obj_set_style_text_align(ui_Label6, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_Label6, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_cntnrMixer = lv_obj_create(ui_ProcessFlow);
+    lv_obj_remove_style_all(ui_cntnrMixer);
+    lv_obj_set_width(ui_cntnrMixer, 320);
+    lv_obj_set_height(ui_cntnrMixer, 30);
+    lv_obj_set_x(ui_cntnrMixer, 0);
+    lv_obj_set_y(ui_cntnrMixer, 80);
+    lv_obj_remove_flag(ui_cntnrMixer, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_LabelMixer = lv_label_create(ui_cntnrMixer);
+    lv_obj_set_width(ui_LabelMixer, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_LabelMixer, LV_SIZE_CONTENT);
+    lv_label_set_text(ui_LabelMixer, "MIXER:");
+    lv_obj_set_style_text_font(ui_LabelMixer, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lblMixerStatus = lv_label_create(ui_cntnrMixer);
+    lv_obj_set_width(ui_lblMixerStatus, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui_lblMixerStatus, LV_SIZE_CONTENT);
+    lv_obj_set_x(ui_lblMixerStatus, 90);
+    lv_obj_set_y(ui_lblMixerStatus, 0);
+    lv_label_set_text(ui_lblMixerStatus, "--");
+    lv_obj_set_style_text_font(ui_lblMixerStatus, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_SumpPump = lv_button_create(ui_ProcessFlow);
     lv_obj_set_width(ui_SumpPump, 50);
@@ -317,8 +344,10 @@ void ui_scrRunAuto_screen_init(void)
     lv_obj_add_event_cb(ui_btnEmergencyStop, ui_event_btnEmergencyStop, LV_EVENT_ALL, NULL);
     uic_ProcessFlowControl = ui_scrRunAuto;
     uic_ProcessFlowImage = ui_ProcessFlowImage;
+    uic_lblCurrentStatus1 = ui_lblCurrentStatus1;
     uic_cntnrStatus = ui_cntnrStatus;
     uic_lblCurrentStatus = ui_lblCurrentStatus;
+    uic_lblMixerStatus = ui_lblMixerStatus;
     uic_SumpPump = ui_SumpPump;
     uic_ScrewPress = ui_ScrewPress;
     uic_TopGate = ui_TopGate;
@@ -349,6 +378,7 @@ void ui_scrRunAuto_screen_destroy(void)
     uic_ProcessFlowImage = NULL;
     ui_ProcessFlowImage = NULL;
     ui_cntnrStatus1 = NULL;
+    uic_lblCurrentStatus1 = NULL;
     ui_lblCurrentStatus1 = NULL;
     ui_Label7 = NULL;
     uic_cntnrStatus = NULL;
@@ -356,6 +386,10 @@ void ui_scrRunAuto_screen_destroy(void)
     uic_lblCurrentStatus = NULL;
     ui_lblCurrentStatus = NULL;
     ui_Label6 = NULL;
+    uic_lblMixerStatus = NULL;
+    ui_lblMixerStatus = NULL;
+    ui_cntnrMixer = NULL;
+    ui_LabelMixer = NULL;
     uic_SumpPump = NULL;
     ui_SumpPump = NULL;
     uic_ScrewPress = NULL;
