@@ -253,6 +253,55 @@ static void sensor_update_ui(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Liquid path task — always active while the machine is powered.      */
+/* Settling and filter pumps are controlled independently by their own  */
+/* tank level sensors, regardless of the auto process state.           */
+/* ------------------------------------------------------------------ */
+
+static void set_pump(uint8_t relay_num, bool on)
+{
+    pcf8575_set_relay(relay_num, on);
+    if (lvgl_port_lock(1000)) {
+        app_machine_update_indicator(relay_num, on);
+        lvgl_port_unlock();
+    }
+}
+
+static void liquid_path_task(void *arg)
+{
+    (void)arg;
+
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        /* Fresh sensor read for this tick */
+        pcf8575_update_sensor_cache();
+
+        /* ---- Settling tank → settling pump → filter tank ---- */
+        bool settling_upper   = pcf8575_get_sensor_cached(SENSOR_SETTLING_UPPER);
+        bool settling_lower   = pcf8575_get_sensor_cached(SENSOR_SETTLING_LOWER);
+        bool settling_pump_on = pcf8575_get_relay(RELAY_SETTLING_PUMP);
+
+        if (!settling_pump_on && settling_upper) {
+            set_pump(RELAY_SETTLING_PUMP, true);
+        } else if (settling_pump_on && settling_lower) {
+            set_pump(RELAY_SETTLING_PUMP, false);
+        }
+
+        /* ---- Filter tank → filter pump → treated water out ---- */
+        bool filter_upper   = pcf8575_get_sensor_cached(SENSOR_FILTER_UPPER);
+        bool filter_lower   = pcf8575_get_sensor_cached(SENSOR_FILTER_LOWER);
+        bool filter_pump_on = pcf8575_get_relay(RELAY_FILTER_PUMP);
+
+        if (!filter_pump_on && filter_upper) {
+            set_pump(RELAY_FILTER_PUMP, true);
+        } else if (filter_pump_on && filter_lower) {
+            set_pump(RELAY_FILTER_PUMP, false);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Interrupt-driven sensor task                                       */
 
 static void sensor_int_task(void *arg)
@@ -285,4 +334,7 @@ void app_machine_start_sensor_polling(void)
 
     /* Create the sensor task (small stack, low priority) */
     xTaskCreate(sensor_int_task, "sensor_int", 3072, NULL, 3, NULL);
+
+    /* Create the always-on liquid path task (transfer pumps) */
+    xTaskCreate(liquid_path_task, "liquid_path", 3072, NULL, 4, NULL);
 }

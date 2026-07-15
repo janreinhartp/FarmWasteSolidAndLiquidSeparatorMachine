@@ -210,36 +210,9 @@ static void tick_input_tank(void)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Liquid path (call each tick in any active state)                    */
-/* Settling and filter pumps are controlled independently by their own */
-/* tank level sensors.                                                 */
-/* ------------------------------------------------------------------ */
-
-static void tick_liquid_path(void)
-{
-    /* ---- Settling tank → settling pump → filter tank ---- */
-    bool settling_upper   = pcf8575_get_sensor_cached(SENSOR_SETTLING_UPPER);
-    bool settling_lower   = pcf8575_get_sensor_cached(SENSOR_SETTLING_LOWER);
-    bool settling_pump_on = pcf8575_get_relay(RELAY_SETTLING_PUMP);
-
-    if (!settling_pump_on && settling_upper) {
-        set_relay(RELAY_SETTLING_PUMP, true);
-    } else if (settling_pump_on && settling_lower) {
-        set_relay(RELAY_SETTLING_PUMP, false);
-    }
-
-    /* ---- Filter tank → filter pump → treated water output ---- */
-    bool filter_upper   = pcf8575_get_sensor_cached(SENSOR_FILTER_UPPER);
-    bool filter_lower   = pcf8575_get_sensor_cached(SENSOR_FILTER_LOWER);
-    bool filter_pump_on = pcf8575_get_relay(RELAY_FILTER_PUMP);
-
-    if (!filter_pump_on && filter_upper) {
-        set_relay(RELAY_FILTER_PUMP, true);
-    } else if (filter_pump_on && filter_lower) {
-        set_relay(RELAY_FILTER_PUMP, false);
-    }
-}
+/* Settling and filter pump control has been moved to app_machine.c    */
+/* (liquid_path_task) so the transfer pumps run independently of the   */
+/* auto process state — always active while the machine is powered.    */
 
 /* ------------------------------------------------------------------ */
 /* FreeRTOS process task                                               */
@@ -266,9 +239,6 @@ static void process_task(void *arg)
         /* Update elapsed time display every tick (100 ms; label only redraws on change) */
         update_time_display();
         update_mixer_display();
-
-        /* Liquid path active in all non-idle states */
-        tick_liquid_path();
 
         switch (s_state) {
 
