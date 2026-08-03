@@ -22,42 +22,51 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
 
 ### System Overview
 
-```
-                        ┌─────────────────────────────────┐
-                        │        ESP32-P4 (CrowPanel)      │
-                        │                                  │
-                        │  GPIO45 (SDA) ──────────────────►│─── I2C SDA
-                        │  GPIO46 (SCL) ──────────────────►│─── I2C SCL
-                        │  GPIO3  (~INT)◄─────────────────►│─── PCF8575 ~INT
-                        │  3.3 V ─────────────────────────►│─── VCC (PCF8575)
-                        │  GND ───────────────────────────►│─── GND
-                        └─────────────────────────────────┘
-                                        │ I2C (400 kHz)
-                                        ▼
-                        ┌─────────────────────────────────┐
-                        │   PCF8575 I/O Expander (0x20)    │
-                        │   A0=A1=A2=GND                   │
-                        │                                  │
-                        │  P00 ── P07  →  Relay Board      │
-                        │  P10 ── P16  ←  Float Sensors    │
-                        │  ~INT        →  GPIO3 (IRQ)      │
-                        └─────────────────────────────────┘
-                              │                  │
-                    ┌─────────┘                  └───────────────┐
-                    ▼                                             ▼
-       ┌─────────────────────────┐              ┌───────────────────────────┐
-       │   8-ch Relay Board      │              │   Float Level Sensors     │
-       │   (5 V coil, active LOW)│              │   (NO, active LOW)        │
-       │                         │              │                           │
-       │  IN1 → Heater           │              │  P10 Input Tank Lower     │
-       │  IN2 → Top Gate         │              │  P11 Input Tank Upper     │
-       │  IN3 → Bottom Gate      │              │  P12 Settling Lower       │
-       │  IN4 → Filter Pump      │              │  P13 Settling Upper       │
-       │  IN5 → Settling Pump    │              │  P14 Filter Lower         │
-       │  IN6 → Sump Pump        │              │  P15 Filter Upper         │
-       │  IN7 → Screw Press      │              │  P16 Mixer Upper          │
-       │  IN8 → Mixer Motor      │              └───────────────────────────┘
-       └─────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph MCU["ESP32-P4 (CrowPanel)"]
+        ESP["ESP32-P4"]
+        SDA["GPIO45 (SDA)"]
+        SCL["GPIO46 (SCL)"]
+        INT["GPIO3 (~INT)"]
+    end
+
+    subgraph PCF["PCF8575 I/O Expander (0x20)"]
+        EXP["PCF8575\nA0=A1=A2=GND"]
+        OUT["P00-P07 → relay outputs"]
+        INP["P10-P16 ← float sensor inputs"]
+    end
+
+    subgraph RELAYS["8-Channel Relay Board"]
+        RELAY["IN1-IN8\n5 V coil, active LOW"]
+    end
+
+    subgraph SENSORS["Float Level Sensors"]
+        S1["Input Tank Lower"]
+        S2["Input Tank Upper"]
+        S3["Settling Lower"]
+        S4["Settling Upper"]
+        S5["Filter Lower"]
+        S6["Filter Upper"]
+        S7["Mixer Upper"]
+    end
+
+    ESP -->|I2C| SDA
+    ESP -->|I2C| SCL
+    ESP <-->|IRQ| INT
+    SDA --> EXP
+    SCL --> EXP
+    INT --> EXP
+    EXP -->|outputs| OUT
+    OUT --> RELAY
+    EXP -->|inputs| INP
+    INP --> S1
+    INP --> S2
+    INP --> S3
+    INP --> S4
+    INP --> S5
+    INP --> S6
+    INP --> S7
 ```
 
 ---
