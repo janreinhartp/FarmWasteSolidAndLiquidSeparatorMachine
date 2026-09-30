@@ -175,7 +175,7 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 
 | Bit | Define | Location |
 |---|---|---|
-| P10 | `SENSOR_INPUT_TANK_LOWER` | Input tank — lower float |
+| P10 | `SENSOR_INPUT_TANK_LOWER` | Input tank — lower float *(removed from hardware; unused, see note below)* |
 | P11 | `SENSOR_INPUT_TANK_UPPER` | Input tank — upper float |
 | P12 | `SENSOR_SETTLING_LOWER` | Settling tank — lower float |
 | P13 | `SENSOR_SETTLING_UPPER` | Settling tank — upper float |
@@ -184,6 +184,8 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 | P16 | `SENSOR_MIXER_UPPER` | Mixer tank — upper float |
 
 > Sensor **triggered** = reads `0`; **idle** = reads `1`.
+
+> **Input Tank Lower float removed:** residual sticky waste kept the float stuck, causing false "triggered" readings. Input tank refill during pressing is now driven by a **Refill Delay** timer instead (see Settings and Auto Process sections). The P10 input/UI indicator is left wired as a spare and is no longer used for control logic.
 
 ---
 
@@ -223,6 +225,7 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 | Mixer Run Time | `mix_rt` | 1.0 | minutes |
 | Drying Time | `dry_t` | 120.0 | minutes |
 | Discharge Time | `dis_t` | 1.0 | minutes |
+| Refill Delay | `refill_d` | 5.0 | minutes |
 
 ---
 
@@ -318,11 +321,11 @@ The **Sump Pump** turns on to pump raw waste sludge into the input tank. No othe
 Exits when `SENSOR_INPUT_TANK_UPPER` is triggered (input tank is full).
 
 #### PROC_PRESSING
-The input tank is full. The **Mixer Upper Gate** (TOP_GATE) opens to receive solids from the screw press, then the **Screw Press** starts compressing the sludge. Liquid squeezed out flows to the settling tank. While pressing runs the input tank level is continuously maintained — if it drops to the lower float the sump pump restarts; if it reaches the upper float the sump pump stops.
+The input tank is full. The **Mixer Upper Gate** (TOP_GATE) opens to receive solids from the screw press, then the **Screw Press** starts compressing the sludge. Liquid squeezed out flows to the settling tank. While pressing runs the input tank level is maintained by a timer-based refill cycle (the lower float sensor was removed — see below): the sump pump stays off for the **Refill Delay** after the tank was last filled, then turns back on until `SENSOR_INPUT_TANK_UPPER` triggers again.
 
 | Relay | State |
 |---|---|
-| `RELAY_SUMP_PUMP` | level-controlled (lower float → ON, upper float → OFF) |
+| `RELAY_SUMP_PUMP` | timer-controlled (off for Refill Delay, then on until upper float trips) |
 | `RELAY_TOP_GATE` | ON (mixer upper gate open) |
 | `RELAY_SCREW_PRESS` | ON |
 
@@ -356,14 +359,17 @@ Runs for the **Discharge Time** setting duration (default 1.0 min, configurable)
 
 ### Input Tank Level Control (active during PRESSING)
 
-While the screw press is running the sump pump is managed by a continuous level controller (`tick_input_tank`) called every 100 ms:
+The input tank's lower float sensor was removed — residual sticky waste kept fouling it and causing false triggers. The sump pump is now controlled by a timer-based refill cycle (`tick_input_tank`) called every 100 ms:
 
 ```
-SENSOR_INPUT_TANK_LOWER triggered  →  start SUMP_PUMP  (tank is low, refill)
-SENSOR_INPUT_TANK_UPPER triggered  →  stop  SUMP_PUMP  (tank is full)
+SENSOR_INPUT_TANK_UPPER triggered  →  stop SUMP_PUMP, start Refill Delay timer
+Refill Delay timer elapsed         →  start SUMP_PUMP again
 ```
 
-This ensures a steady supply of raw sludge to the screw press throughout the pressing phase.
+- **Refill Delay** (default 5 min, configurable) — how long the pump stays off after the tank was last filled, before refilling starts again.
+- The pump then runs until `SENSOR_INPUT_TANK_UPPER` triggers again, restarting the cycle.
+
+This ensures a steady, non-continuous supply of raw sludge to the screw press throughout the pressing phase without relying on the fouled lower float sensor.
 
 ---
 

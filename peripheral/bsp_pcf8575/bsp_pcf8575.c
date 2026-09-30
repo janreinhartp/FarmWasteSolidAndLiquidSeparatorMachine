@@ -19,6 +19,9 @@ static uint16_t s_state = 0xFFFF;
 static i2c_master_dev_handle_t s_dev = NULL;
 /* Cached sensor read — updated once per tick via pcf8575_update_sensor_cache() */
 static volatile uint16_t s_input_cache = 0xFFFF;
+/* Guards s_state read-modify-write-flush: process_task, liquid_path_task and
+   UI button callbacks all call pcf8575_set_relay() concurrently. */
+static SemaphoreHandle_t s_state_mutex = NULL;
 
 /* ---- Interrupt support ---- */
 static SemaphoreHandle_t s_int_sem = NULL;
@@ -144,6 +147,11 @@ flush_ok:
 
 esp_err_t pcf8575_init(void)
 {
+    if (s_state_mutex == NULL) {
+        s_state_mutex = xSemaphoreCreateMutex();
+        if (s_state_mutex == NULL) return ESP_ERR_NO_MEM;
+    }
+
     s_dev = i2c_dev_register(PCF8575_I2C_ADDR);
     if (s_dev == NULL) {
         PCF8575_ERROR("Failed to register PCF8575 at I2C address 0x%02X", PCF8575_I2C_ADDR);
@@ -164,6 +172,7 @@ esp_err_t pcf8575_init(void)
 esp_err_t pcf8575_set_relay(uint8_t relay_num, bool on)
 {
     if (relay_num >= RELAY_COUNT) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
     uint16_t prev = s_state;
     if (on) {
         s_state &= ~(1U << relay_num);   /* clear bit → drive LOW → relay ON  */
@@ -174,6 +183,7 @@ esp_err_t pcf8575_set_relay(uint8_t relay_num, bool on)
     s_state |= 0xFF00;
     esp_err_t err = pcf8575_flush();
     if (err != ESP_OK) s_state = prev;   /* restore shadow so SW matches HW */
+    xSemaphoreGive(s_state_mutex);
     return err;
 }
 
@@ -183,18 +193,23 @@ esp_err_t pcf8575_set_all_relays(uint8_t relay_byte)
      * Caller convention: relay_byte bit=1 means relay ON, bit=0 means OFF.
      * Invert for active-LOW hardware, then merge with sensor bits kept HIGH.
      */
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
     uint16_t prev = s_state;
     s_state = 0xFF00 | ((uint8_t)(~relay_byte));
     esp_err_t err = pcf8575_flush();
     if (err != ESP_OK) s_state = prev;   /* restore shadow so SW matches HW */
+    xSemaphoreGive(s_state_mutex);
     return err;
 }
 
 bool pcf8575_get_relay(uint8_t relay_num)
 {
     if (relay_num >= RELAY_COUNT) return false;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
     /* bit=0 in s_state means relay is ON (active LOW) */
-    return !(s_state & (1U << relay_num));
+    bool on = !(s_state & (1U << relay_num));
+    xSemaphoreGive(s_state_mutex);
+    return on;
 }
 
 esp_err_t pcf8575_read_inputs(uint16_t *state_out)

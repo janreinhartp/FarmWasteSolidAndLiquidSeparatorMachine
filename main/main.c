@@ -99,6 +99,14 @@ static void system_init(void) {
     }
     if (err != ESP_OK) init_fail_handler("NVS", err);
     MAIN_INFO("NVS flash init success");
+
+    // 10. Mount flash log storage and start mirroring ESP_LOG output to it
+    err = app_log_init();
+    if (err != ESP_OK) {
+        MAIN_ERROR("app_log_init failed: %s — continuing with console-only logging", esp_err_to_name(err));
+    } else {
+        MAIN_INFO("Flash log storage init success");
+    }
 }
 
 void app_main(void)

@@ -161,7 +161,10 @@ void app_machine_init(void)
 void app_machine_all_relays_off(void)
 {
     /* Hardware: de-energise all 8 relays */
-    pcf8575_set_all_relays(0x00);
+    esp_err_t err = pcf8575_set_all_relays(0x00);
+    if (err != ESP_OK) {
+        ESP_LOGE(APP_MACHINE_TAG, "all-relays-off write failed (%s)", esp_err_to_name(err));
+    }
 
     /* Update Run Auto indicator colours */
     set_btn_color(uic_SumpPump,          false);
@@ -260,7 +263,12 @@ static void sensor_update_ui(void)
 
 static void set_pump(uint8_t relay_num, bool on)
 {
-    pcf8575_set_relay(relay_num, on);
+    esp_err_t err = pcf8575_set_relay(relay_num, on);
+    if (err != ESP_OK) {
+        ESP_LOGE(APP_MACHINE_TAG, "Relay %d write failed (%s) — indicator left unchanged",
+                 relay_num, esp_err_to_name(err));
+        return;
+    }
     if (lvgl_port_lock(1000)) {
         app_machine_update_indicator(relay_num, on);
         lvgl_port_unlock();

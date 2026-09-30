@@ -19,6 +19,7 @@
 #include "app_machine.h"
 #include "app_settings.h"
 #include "app_process.h"
+#include "app_log.h"
 /*——————————————————————————————————————Header file declaration end——————————————————————————————————————*/
 
 /*——————————————————————————————————————————Variable declaration—————————————————————————————————————————*/
