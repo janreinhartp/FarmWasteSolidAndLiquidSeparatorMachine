@@ -17,6 +17,9 @@
  */
 static uint16_t s_state = 0xFFFF;
 static i2c_master_dev_handle_t s_dev = NULL;
+static i2c_master_dev_handle_t s_mixer_dev = NULL;
+static SemaphoreHandle_t s_mixer_mutex = NULL;
+static mixer_direction_t s_mixer_direction = MIXER_DIRECTION_OFF;
 /* Cached sensor read — updated once per tick via pcf8575_update_sensor_cache() */
 static volatile uint16_t s_input_cache = 0xFFFF;
 /* Guards s_state read-modify-write-flush: process_task, liquid_path_task and
@@ -167,6 +170,61 @@ esp_err_t pcf8575_init(void)
 
     PCF8575_INFO("PCF8575 initialised at 0x%02X — all relays OFF", PCF8575_I2C_ADDR);
     return ESP_OK;
+}
+
+esp_err_t pcf8575_mixer_init(void)
+{
+    if (s_mixer_mutex == NULL) {
+        s_mixer_mutex = xSemaphoreCreateMutex();
+        if (s_mixer_mutex == NULL) return ESP_ERR_NO_MEM;
+    }
+
+    s_mixer_dev = i2c_dev_register(PCF8575_MIXER_I2C_ADDR);
+    if (s_mixer_dev == NULL) {
+        PCF8575_ERROR("Failed to register mixer expander at I2C address 0x%02X",
+                      PCF8575_MIXER_I2C_ADDR);
+        return ESP_FAIL;
+    }
+
+    uint8_t outputs[2] = {0xFF, 0xFF};
+    esp_err_t err = i2c_write(s_mixer_dev, outputs, sizeof(outputs));
+    if (err != ESP_OK) {
+        PCF8575_ERROR("Mixer expander initial write failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    s_mixer_direction = MIXER_DIRECTION_OFF;
+    PCF8575_INFO("Mixer direction expander initialised at 0x%02X — outputs OFF",
+                 PCF8575_MIXER_I2C_ADDR);
+    return ESP_OK;
+}
+
+esp_err_t pcf8575_set_mixer_direction(mixer_direction_t direction)
+{
+    if (s_mixer_dev == NULL ||
+        (direction != MIXER_DIRECTION_OFF &&
+         direction != MIXER_DIRECTION_FORWARD &&
+         direction != MIXER_DIRECTION_REVERSE)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    xSemaphoreTake(s_mixer_mutex, portMAX_DELAY);
+    uint8_t low_byte = 0xFF;
+    if (direction == MIXER_DIRECTION_FORWARD) low_byte &= ~(1U << 0);
+    if (direction == MIXER_DIRECTION_REVERSE) low_byte &= ~(1U << 1);
+    uint8_t outputs[2] = {low_byte, 0xFF};
+    esp_err_t err = i2c_write(s_mixer_dev, outputs, sizeof(outputs));
+    if (err == ESP_OK) s_mixer_direction = direction;
+    xSemaphoreGive(s_mixer_mutex);
+    return err;
+}
+
+mixer_direction_t pcf8575_get_mixer_direction(void)
+{
+    if (s_mixer_mutex == NULL) return MIXER_DIRECTION_OFF;
+    xSemaphoreTake(s_mixer_mutex, portMAX_DELAY);
+    mixer_direction_t direction = s_mixer_direction;
+    xSemaphoreGive(s_mixer_mutex);
+    return direction;
 }
 
 esp_err_t pcf8575_set_relay(uint8_t relay_num, bool on)

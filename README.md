@@ -11,7 +11,7 @@ ESP32-P4 firmware for the Farm Waste Solid and Liquid Separator Machine. Provide
 | MCU | ESP32-P4 (RISC-V dual-core) |
 | Display | CrowPanel 9″ 1024×600 RGB LCD |
 | Touch | GT911 capacitive (I2C, GPIO40 RST / GPIO42 INT) |
-| I/O Expander | PCF8575 16-bit I2C (addr `0x20`, GPIO45 SDA / GPIO46 SCL, 400 kHz) |
+| I/O Expanders | 2× PCF8575 16-bit I2C (addr `0x20` and `0x21`, GPIO45 SDA / GPIO46 SCL, 400 kHz) |
 | Flash | 16 MB — single factory partition (no OTA) |
 | Framework | ESP-IDF v5.4.3 |
 | UI toolkit | LVGL 9.2.2 (SquareLine Studio 1.6.1 generated screens) |
@@ -37,8 +37,17 @@ flowchart TB
         INP["P10-P16 ← float sensor inputs"]
     end
 
+    subgraph PCF_MIXER["PCF8575 Mixer Direction (0x21)"]
+      EXP_MIXER["PCF8575\nA0=VDD, A1=A2=GND"]
+      DIR["P00 → Forward, P01 → Reverse"]
+    end
+
     subgraph RELAYS["8-Channel Relay Board"]
         RELAY["IN1-IN8\n5 V coil, active LOW"]
+    end
+
+    subgraph MIXER_RELAYS["Mixer Direction Relays"]
+      MIXER_RELAY["Forward / Reverse inputs"]
     end
 
     subgraph SENSORS["Float Level Sensors"]
@@ -56,9 +65,13 @@ flowchart TB
     ESP <-->|IRQ| INT
     SDA --> EXP
     SCL --> EXP
+    SDA --> EXP_MIXER
+    SCL --> EXP_MIXER
     INT --> EXP
     EXP -->|outputs| OUT
     OUT --> RELAY
+    EXP_MIXER --> DIR
+    DIR --> MIXER_RELAY
     EXP -->|inputs| INP
     INP --> S1
     INP --> S2
@@ -71,7 +84,7 @@ flowchart TB
 
 ---
 
-### PCF8575 ↔ ESP32-P4 (I2C Bus)
+### PCF8575 Expanders ↔ ESP32-P4 (I2C Bus)
 
 | PCF8575 Pin | Connects to | Note |
 |---|---|---|
@@ -83,6 +96,8 @@ flowchart TB
 | A0 | GND | I2C address bit 0 |
 | A1 | GND | I2C address bit 1 |
 | A2 | GND | I2C address bit 2 → address `0x20` |
+
+Both expanders share GPIO45 SDA, GPIO46 SCL, 3.3 V, and GND. The existing sensor/relay expander remains at `0x20`. Wire the mixer-direction expander A0 to VDD and A1/A2 to GND for address `0x21`; its `~INT` pin is unused.
 
 > The CrowPanel board supplies 3.3 V and GND on its expansion header. Pull-up resistors may already be present on the board; add 4.7 kΩ externally only if missing.
 
@@ -121,6 +136,19 @@ flowchart TB
 ```
 
 > Use NO (normally-open) contacts so that a power loss or MCU reset leaves all loads de-energised.
+
+### Mixer Direction Expander (PCF8575 at `0x21`)
+
+| PCF8575 Pin | Direction relay input | Function |
+|---|---|---|
+| P00 | IN1 | Forward |
+| P01 | IN2 | Reverse |
+| P03 | IN4 | Spare |
+| P04 | IN5 | Spare |
+
+P02 and the unused expander pins are held HIGH (relay OFF). P07 on the original `0x20` expander remains the mixer master-power relay and is enabled whenever forward or reverse is selected. The firmware never requests forward and reverse together.
+
+> Use a motor-rated reversing contactor or electrically/mechanically interlocked relay arrangement with suitable overload protection. Firmware mutual exclusion does not replace a hardware interlock, and the required motor stop time depends on the motor and load.
 
 ---
 
@@ -207,13 +235,13 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 - **Navigating to this screen automatically starts the process** if it is currently idle.
 
 ### Test Machine (`ui_scrTestMachine`)
-- 8 latching relay toggle buttons — tap to energise, tap again to de-energise.
+- Relay toggle buttons — tap to energise, tap again to de-energise. Mixer FWD and REV controls also enable the mixer master relay; selecting the active direction again stops it.
 - Button color reflects relay state: green = ON, dark gray = OFF.
 - 7 read-only sensor checkboxes (no label): checked when the corresponding sensor is triggered.
 - **Stop Test** button: de-energises all relays and returns to Main Menu.
 
 ### Settings (`ui_scrSettings`)
-- Cycle through 4 settings with **Previous** / **Next** buttons.
+- Cycle through 6 settings with **Previous** / **Next** buttons.
 - Adjust value with **+** / **−** buttons.
 - Select step size with multiplier buttons: **×0.1**, **×1**, **×5** (active button highlighted green).
 - **Save** button: writes values to NVS and returns to Main Menu.
@@ -222,7 +250,8 @@ Each float sensor is a **two-wire normally-open (NO) reed switch** type. When th
 | Setting | NVS Key | Default | Unit |
 |---|---|---|---|
 | Mixer Interval | `mix_int` | 10.0 | minutes |
-| Mixer Run Time | `mix_rt` | 1.0 | minutes |
+| Mixer Run Time | `mix_rt` | 4.0 | minutes |
+| Mixer Direction Time | `mix_dir` | 2.0 | minutes per direction |
 | Drying Time | `dry_t` | 120.0 | minutes |
 | Discharge Time | `dis_t` | 1.0 | minutes |
 | Refill Delay | `refill_d` | 5.0 | minutes |
@@ -274,9 +303,10 @@ The system has two parallel paths:
                    ▼
 ┌──────────────────────────────────────────────────────────┐
 │  PROC_PRESSING                                           │
-│  ON:  SCREW_PRESS, TOP_GATE (mixer upper gate)           │
+│  ON:  HEATER, SCREW_PRESS, TOP_GATE                      │
+│  MIXER: periodic forward/reverse cycle                  │
 │  SUMP_PUMP: level-controlled by input tank floats        │
-│  STATUS: "SCREW PRESSING"                                │
+│  STATUS: "PREHEAT + PRESSING"                            │
 │  WAIT: SENSOR_MIXER_UPPER triggered (mixer full)         │
 └──────────────────────────────────────────────────────────┘
                    │  mixer upper float triggered
@@ -284,7 +314,7 @@ The system has two parallel paths:
 ┌──────────────────────────────────────────────────────────┐
 │  PROC_DRYING                                             │
 │  OFF: SCREW_PRESS, TOP_GATE, SUMP_PUMP                   │
-│  ON:  HEATER  (+ periodic MIXER cycle)                   │
+│  ON:  HEATER (+ periodic MIXER cycle continues)          │
 │  STATUS: "DRYING"                                        │
 │  WAIT: Drying Time setting elapsed                       │
 └──────────────────────────────────────────────────────────┘
@@ -293,7 +323,7 @@ The system has two parallel paths:
 ┌──────────────────────────────────────────────────────────┐
 │  PROC_DISCHARGING                                        │
 │  OFF: HEATER                                             │
-│  ON:  BOTTOM_GATE, MIXER (sweeps solids out)             │
+│  ON:  BOTTOM_GATE, MIXER forward (sweeps solids out)     │
 │  STATUS: "DISCHARGING"                                   │
 │  WAIT: Discharge Time setting elapsed                    │
 └──────────────────────────────────────────────────────────┘
@@ -321,18 +351,20 @@ The **Sump Pump** turns on to pump raw waste sludge into the input tank. No othe
 Exits when `SENSOR_INPUT_TANK_UPPER` is triggered (input tank is full).
 
 #### PROC_PRESSING
-The input tank is full. The **Mixer Upper Gate** (TOP_GATE) opens to receive solids from the screw press, then the **Screw Press** starts compressing the sludge. Liquid squeezed out flows to the settling tank. While pressing runs the input tank level is maintained by a timer-based refill cycle (the lower float sensor was removed — see below): the sump pump stays off for the **Refill Delay** after the tank was last filled, then turns back on until `SENSOR_INPUT_TANK_UPPER` triggers again.
+The input tank is full. The **Heater** starts preheating while the **Mixer Upper Gate** (TOP_GATE) opens and the **Screw Press** starts compressing the sludge. The mixer also runs intermittently in alternating forward and reverse directions to prevent solids building up at the mixer inlet. These heater and mixer cycles continue when pressing ends and drying begins. Liquid squeezed out flows to the settling tank. While pressing runs the input tank level is maintained by a timer-based refill cycle (the lower float sensor was removed — see below): the sump pump stays off for the **Refill Delay** after the tank was last filled, then turns back on until `SENSOR_INPUT_TANK_UPPER` triggers again.
 
 | Relay | State |
 |---|---|
 | `RELAY_SUMP_PUMP` | timer-controlled (off for Refill Delay, then on until upper float trips) |
 | `RELAY_TOP_GATE` | ON (mixer upper gate open) |
 | `RELAY_SCREW_PRESS` | ON |
+| `RELAY_HEATER` | ON (preheating) |
+| `RELAY_MIXER` | periodic forward/reverse cycle |
 
 Exits when `SENSOR_MIXER_UPPER` is triggered (mixer chamber is full of compressed solids).
 
 #### PROC_DRYING
-Screw press stops. The **Mixer Upper Gate** closes (sealing the mixer chamber). Sump pump stops. The **Heater** turns on to dry the solid cake. The mixer motor runs on a periodic cycle to distribute heat evenly and prevent the cake from hardening unevenly.
+The screw press stops, the **Mixer Upper Gate** closes (sealing the mixer chamber), and the sump pump stops. Preheating continues as the **Heater** dries the solid cake. The mixer keeps its periodic forward/reverse cycle to distribute heat evenly and prevent the cake from hardening unevenly.
 
 | Relay | State |
 |---|---|
@@ -375,19 +407,20 @@ This ensures a steady, non-continuous supply of raw sludge to the screw press th
 
 ### Mixer Cycle (active during PRESSING and DRYING)
 
-The mixer does not run continuously during pressing and drying — it pulses on a repeating interval:
+The mixer runs intermittently during pressing and drying:
 
 ```
-|<------ Mixer Interval ------>|<- Run Time ->|<------ Mixer Interval ------>| ...
-         MIXER OFF                  MIXER ON           MIXER OFF
+|<------ Mixer Interval ------>|<------ Mixer Run Time ------>| ...
+         MIXER OFF                FWD → REV → OFF
 ```
 
 - **Mixer Interval** (default 10 min) — idle time between mixer runs.
-- **Mixer Run Time** (default 1 min) — how long the mixer stays on each pulse.
+- **Mixer Run Time** (default 4 min) — total duration of each mixer run.
+- **Mixer Direction Time** (default 2 min) — duration of each forward or reverse leg. With the defaults, the mixer runs 2 min forward, then 2 min reverse.
 
-The phase clock resets at the start of each PRESSING and DRYING state so the first pulse always fires `Mixer Interval` minutes after entering that state.
+The phase clock resets on entry to PRESSING, so the first mixer run starts after `Mixer Interval` minutes. The cycle continues across the transition to DRYING without resetting. When a run ends, both direction outputs and the master relay turn off until the next interval.
 
-> During DISCHARGING the mixer runs **continuously** (not on a cycle) to sweep out all dry solids.
+> During DISCHARGING the mixer runs **continuously forward only** (not on a cycle) to sweep out all dry solids.
 
 ---
 

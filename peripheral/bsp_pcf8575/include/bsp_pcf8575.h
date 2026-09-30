@@ -10,6 +10,13 @@
 
 /* PCF8575 I2C address (A0=A1=A2=GND) */
 #define PCF8575_I2C_ADDR        0x20
+#define PCF8575_MIXER_I2C_ADDR  0x21
+
+typedef enum {
+   MIXER_DIRECTION_OFF = 0,
+   MIXER_DIRECTION_FORWARD,
+   MIXER_DIRECTION_REVERSE,
+} mixer_direction_t;
 
 /* ---- Relay output bit positions (P0x, low byte, active LOW) ---- */
 /* Relay ON  = write 0 to the bit
@@ -42,6 +49,9 @@
  * @return ESP_OK on success, ESP_FAIL if I2C device registration fails.
  */
 esp_err_t pcf8575_init(void);
+esp_err_t pcf8575_mixer_init(void);
+esp_err_t pcf8575_set_mixer_direction(mixer_direction_t direction);
+mixer_direction_t pcf8575_get_mixer_direction(void);
 
 /**
  * @brief  Set a single relay ON or OFF.

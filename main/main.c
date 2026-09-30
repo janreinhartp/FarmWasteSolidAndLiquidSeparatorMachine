@@ -91,6 +91,10 @@ static void system_init(void) {
     if (err != ESP_OK) init_fail_handler("PCF8575", err);
     MAIN_INFO("PCF8575 init success");
 
+    err = pcf8575_mixer_init();
+    if (err != ESP_OK) init_fail_handler("Mixer PCF8575", err);
+    MAIN_INFO("Mixer direction PCF8575 init success");
+
     // 9. Initialize NVS flash (required for settings storage)
     err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {

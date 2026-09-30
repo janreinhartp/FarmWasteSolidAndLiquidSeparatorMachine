@@ -16,6 +16,7 @@ lv_obj_t * uic_TestUpperLimitSettlingTank;
 lv_obj_t * uic_testFilterTankPump;
 lv_obj_t * uic_testSettlingTankPump;
 lv_obj_t * uic_testMixer;
+lv_obj_t * uic_testMixerReverse;
 lv_obj_t * uic_testHeater;
 lv_obj_t * uic_testBottomGate;
 lv_obj_t * uic_testTopGate;
@@ -31,6 +32,7 @@ lv_obj_t * ui_testTopGate = NULL;
 lv_obj_t * ui_testBottomGate = NULL;
 lv_obj_t * ui_testHeater = NULL;
 lv_obj_t * ui_testMixer = NULL;
+lv_obj_t * ui_testMixerReverse = NULL;
 lv_obj_t * ui_testSettlingTankPump = NULL;
 lv_obj_t * ui_testFilterTankPump = NULL;
 lv_obj_t * ui_TestUpperLimitSettlingTank = NULL;
@@ -138,6 +140,32 @@ void ui_scrTestMachine_screen_init(void)
     lv_obj_add_flag(ui_testMixer, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
     lv_obj_remove_flag(ui_testMixer, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
     lv_obj_set_style_radius(ui_testMixer, 50, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_testMixerReverse = lv_button_create(ui_ProcessFlow1);
+    lv_obj_set_width(ui_testMixerReverse, 50);
+    lv_obj_set_height(ui_testMixerReverse, 50);
+    lv_obj_set_x(ui_testMixerReverse, -169);
+    lv_obj_set_y(ui_testMixerReverse, 145);
+    lv_obj_set_align(ui_testMixerReverse, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_testMixerReverse, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_remove_flag(ui_testMixerReverse, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(ui_testMixerReverse, 50, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *mixer_forward_label = lv_label_create(ui_ProcessFlow1);
+    lv_obj_set_width(mixer_forward_label, LV_SIZE_CONTENT);
+    lv_obj_set_height(mixer_forward_label, LV_SIZE_CONTENT);
+    lv_obj_set_x(mixer_forward_label, -169);
+    lv_obj_set_y(mixer_forward_label, 115);
+    lv_obj_set_align(mixer_forward_label, LV_ALIGN_CENTER);
+    lv_label_set_text(mixer_forward_label, "FWD");
+
+    lv_obj_t *mixer_reverse_label = lv_label_create(ui_ProcessFlow1);
+    lv_obj_set_width(mixer_reverse_label, LV_SIZE_CONTENT);
+    lv_obj_set_height(mixer_reverse_label, LV_SIZE_CONTENT);
+    lv_obj_set_x(mixer_reverse_label, -169);
+    lv_obj_set_y(mixer_reverse_label, 174);
+    lv_obj_set_align(mixer_reverse_label, LV_ALIGN_CENTER);
+    lv_label_set_text(mixer_reverse_label, "REV");
 
     ui_testSettlingTankPump = lv_button_create(ui_ProcessFlow1);
     lv_obj_set_width(ui_testSettlingTankPump, 50);
@@ -260,6 +288,7 @@ void ui_scrTestMachine_screen_init(void)
     uic_testBottomGate = ui_testBottomGate;
     uic_testHeater = ui_testHeater;
     uic_testMixer = ui_testMixer;
+    uic_testMixerReverse = ui_testMixerReverse;
     uic_testSettlingTankPump = ui_testSettlingTankPump;
     uic_testFilterTankPump = ui_testFilterTankPump;
     uic_TestUpperLimitSettlingTank = ui_TestUpperLimitSettlingTank;
@@ -294,6 +323,8 @@ void ui_scrTestMachine_screen_destroy(void)
     ui_testHeater = NULL;
     uic_testMixer = NULL;
     ui_testMixer = NULL;
+    uic_testMixerReverse = NULL;
+    ui_testMixerReverse = NULL;
     uic_testSettlingTankPump = NULL;
     ui_testSettlingTankPump = NULL;
     uic_testFilterTankPump = NULL;

@@ -9,13 +9,15 @@
 #define NVS_NAMESPACE    "fw_settings"
 #define NVS_KEY_MIX_INT  "mix_int"
 #define NVS_KEY_MIX_RT   "mix_rt"
+#define NVS_KEY_MIX_DIR  "mix_dir"
 #define NVS_KEY_DRY_T    "dry_t"
 #define NVS_KEY_DIS_T    "dis_t"
 #define NVS_KEY_REFILL_D "refill_d"
 
 /* ---- Defaults (stored as tenths of minutes) ---- */
 #define DEFAULT_MIXER_INTERVAL   100   /* 10.0 min */
-#define DEFAULT_MIXER_RUNTIME     10   /* 1.0  min */
+#define DEFAULT_MIXER_RUNTIME     40   /* 4.0  min: 2 min per direction */
+#define DEFAULT_MIXER_DIRECTION  20   /* 2.0  min per direction */
 #define DEFAULT_DRYING_TIME      1200  /* 120.0 min */
 #define DEFAULT_DISCHARGE_TIME     10  /* 1.0  min */
 #define DEFAULT_REFILL_DELAY      50   /* 5.0  min */
@@ -23,6 +25,7 @@
 typedef enum {
     SETTING_MIXER_INTERVAL = 0,
     SETTING_MIXER_RUNTIME,
+    SETTING_MIXER_DIRECTION,
     SETTING_DRYING_TIME,
     SETTING_DISCHARGE_TIME,
     SETTING_REFILL_DELAY,
@@ -32,6 +35,7 @@ typedef enum {
 static const char * const s_names[SETTING_COUNT] = {
     "Mixer Interval",
     "Mixer Run Time",
+    "Mixer Direction Time",
     "Drying Time",
     "Discharge Time",
     "Refill Delay",
@@ -41,6 +45,7 @@ static const char * const s_names[SETTING_COUNT] = {
 static uint16_t s_values[SETTING_COUNT] = {
     DEFAULT_MIXER_INTERVAL,
     DEFAULT_MIXER_RUNTIME,
+    DEFAULT_MIXER_DIRECTION,
     DEFAULT_DRYING_TIME,
     DEFAULT_DISCHARGE_TIME,
     DEFAULT_REFILL_DELAY,
@@ -147,6 +152,7 @@ static void save_cb(lv_event_t *e)
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u16(h, NVS_KEY_MIX_INT, s_values[SETTING_MIXER_INTERVAL]);
         nvs_set_u16(h, NVS_KEY_MIX_RT,  s_values[SETTING_MIXER_RUNTIME]);
+        nvs_set_u16(h, NVS_KEY_MIX_DIR, s_values[SETTING_MIXER_DIRECTION]);
         nvs_set_u16(h, NVS_KEY_DRY_T,   s_values[SETTING_DRYING_TIME]);
         nvs_set_u16(h, NVS_KEY_DIS_T,   s_values[SETTING_DISCHARGE_TIME]);
         nvs_set_u16(h, NVS_KEY_REFILL_D, s_values[SETTING_REFILL_DELAY]);
@@ -178,6 +184,8 @@ void app_settings_init(void)
             s_values[SETTING_MIXER_INTERVAL] = val;
         if (nvs_get_u16(h, NVS_KEY_MIX_RT,  &val) == ESP_OK)
             s_values[SETTING_MIXER_RUNTIME]  = val;
+        if (nvs_get_u16(h, NVS_KEY_MIX_DIR, &val) == ESP_OK)
+            s_values[SETTING_MIXER_DIRECTION] = val;
         if (nvs_get_u16(h, NVS_KEY_DRY_T,   &val) == ESP_OK)
             s_values[SETTING_DRYING_TIME]    = val;
         if (nvs_get_u16(h, NVS_KEY_DIS_T,   &val) == ESP_OK)
@@ -213,6 +221,11 @@ float app_settings_get_mixer_interval_min(void)
 float app_settings_get_mixer_run_time_min(void)
 {
     return s_values[SETTING_MIXER_RUNTIME] / 10.0f;
+}
+
+float app_settings_get_mixer_direction_time_min(void)
+{
+    return s_values[SETTING_MIXER_DIRECTION] / 10.0f;
 }
 
 float app_settings_get_drying_time_min(void)

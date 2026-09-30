@@ -66,6 +66,33 @@ static void test_relay_toggle_cb(lv_event_t *e)
     set_btn_color(btn, new_state);
 }
 
+static void mixer_direction_toggle_cb(lv_event_t *e)
+{
+    mixer_direction_t requested = (mixer_direction_t)(uintptr_t)lv_event_get_user_data(e);
+    mixer_direction_t current = pcf8575_get_mixer_direction();
+    mixer_direction_t next = current == requested ? MIXER_DIRECTION_OFF : requested;
+    esp_err_t err;
+
+    if (next == MIXER_DIRECTION_OFF) {
+        err = pcf8575_set_mixer_direction(MIXER_DIRECTION_OFF);
+        if (err == ESP_OK) err = pcf8575_set_relay(RELAY_MIXER, false);
+    } else {
+        err = pcf8575_set_relay(RELAY_MIXER, true);
+        if (err == ESP_OK) {
+            err = pcf8575_set_mixer_direction(next);
+            if (err != ESP_OK) pcf8575_set_relay(RELAY_MIXER, false);
+        }
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(APP_MACHINE_TAG, "Manual mixer direction change failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    set_btn_color(uic_testMixer, next == MIXER_DIRECTION_FORWARD);
+    set_btn_color(uic_testMixerReverse, next == MIXER_DIRECTION_REVERSE);
+    set_btn_color(uic_Mixer, next != MIXER_DIRECTION_OFF);
+}
+
 /* ------------------------------------------------------------------ */
 
 /* Called when the Test Machine screen is unloaded (navigating away).
@@ -87,6 +114,7 @@ void app_machine_init(void)
     set_btn_color(uic_testScrewPress,         false);
     set_btn_color(uic_testTopGate,            false);
     set_btn_color(uic_testMixer,              false);
+    set_btn_color(uic_testMixerReverse,        false);
     set_btn_color(uic_testHeater,             false);
     set_btn_color(uic_testBottomGate,         false);
     set_btn_color(uic_testSettlingTankPump,   false);
@@ -103,8 +131,11 @@ void app_machine_init(void)
                         test_relay_toggle_cb, LV_EVENT_CLICKED,
                         (void *)(uintptr_t)RELAY_TOP_GATE);
     lv_obj_add_event_cb(uic_testMixer,
-                        test_relay_toggle_cb, LV_EVENT_CLICKED,
-                        (void *)(uintptr_t)RELAY_MIXER);
+                        mixer_direction_toggle_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)MIXER_DIRECTION_FORWARD);
+    lv_obj_add_event_cb(uic_testMixerReverse,
+                        mixer_direction_toggle_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)MIXER_DIRECTION_REVERSE);
     lv_obj_add_event_cb(uic_testHeater,
                         test_relay_toggle_cb, LV_EVENT_CLICKED,
                         (void *)(uintptr_t)RELAY_HEATER);
@@ -165,6 +196,10 @@ void app_machine_all_relays_off(void)
     if (err != ESP_OK) {
         ESP_LOGE(APP_MACHINE_TAG, "all-relays-off write failed (%s)", esp_err_to_name(err));
     }
+    err = pcf8575_set_mixer_direction(MIXER_DIRECTION_OFF);
+    if (err != ESP_OK) {
+        ESP_LOGE(APP_MACHINE_TAG, "mixer direction OFF write failed (%s)", esp_err_to_name(err));
+    }
 
     /* Update Run Auto indicator colours */
     set_btn_color(uic_SumpPump,          false);
@@ -181,6 +216,7 @@ void app_machine_all_relays_off(void)
     set_btn_color(uic_testScrewPress,        false);
     set_btn_color(uic_testTopGate,           false);
     set_btn_color(uic_testMixer,             false);
+    set_btn_color(uic_testMixerReverse,       false);
     set_btn_color(uic_testHeater,            false);
     set_btn_color(uic_testBottomGate,        false);
     set_btn_color(uic_testSettlingTankPump,  false);

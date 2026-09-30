@@ -21,7 +21,7 @@
 typedef enum {
     PROC_IDLE = 0,
     PROC_FILLING,      /* SUMP_PUMP on, wait for input-tank upper sensor               */
-    PROC_PRESSING,     /* TOP_GATE + SCREW_PRESS on, wait for mixer upper sensor       */
+    PROC_PRESSING,     /* Preheat + periodic mixer; press until mixer upper sensor     */
     PROC_DRYING,       /* HEATER on + periodic mixer, wait for drying-time timer       */
     PROC_DISCHARGING,  /* BOTTOM_GATE open 5 s, then back to IDLE                     */
 } proc_state_t;
@@ -31,13 +31,16 @@ static volatile bool          s_start_request = false;
 static int64_t                s_state_enter_us  = 0;
 static int64_t                s_process_start_us = 0;
 
-/* Mixer cycle (used in PRESSING and DRYING) */
+/* Mixer cycle (used during PRESSING and DRYING) */
 static int64_t s_mixer_phase_start_us = 0;
+static int64_t s_mixer_run_start_us = 0;
 static bool    s_mixer_running        = false; /* true = currently ON */
+static bool    s_mixer_reverse        = false;
 
 /* Pre-computed µs durations — updated at state entry, not every tick */
 static int64_t s_mixer_interval_us = 0;
 static int64_t s_mixer_run_us      = 0;
+static int64_t s_mixer_direction_us = 0;
 static int64_t s_drying_us         = 0;
 static int64_t s_discharge_us      = 0;
 
@@ -53,18 +56,40 @@ static int64_t s_refill_wait_start_us = 0;
    Indicator is only updated to the requested state if the I2C write actually
    succeeded — otherwise the UI would show a relay as ON/green while the
    hardware silently failed to energise it (or failed to de-energise it). */
-static void set_relay(uint8_t relay_num, bool on)
+static bool set_relay(uint8_t relay_num, bool on)
 {
     esp_err_t err = pcf8575_set_relay(relay_num, on);
     if (err != ESP_OK) {
         ESP_LOGE(PROC_TAG, "Relay %d write failed (%s) — indicator left unchanged",
                  relay_num, esp_err_to_name(err));
-        return;
+        return false;
     }
     if (lvgl_port_lock(1000)) {
         app_machine_update_indicator(relay_num, on);
         lvgl_port_unlock();
     }
+    return true;
+}
+
+static bool set_mixer_outputs(mixer_direction_t direction)
+{
+    if (direction == MIXER_DIRECTION_OFF) {
+        esp_err_t err = pcf8575_set_mixer_direction(MIXER_DIRECTION_OFF);
+        bool master_off = set_relay(RELAY_MIXER, false);
+        if (err != ESP_OK) {
+            ESP_LOGE(PROC_TAG, "Mixer direction OFF write failed (%s)", esp_err_to_name(err));
+        }
+        return err == ESP_OK && master_off;
+    }
+
+    if (!set_relay(RELAY_MIXER, true)) return false;
+    esp_err_t err = pcf8575_set_mixer_direction(direction);
+    if (err != ESP_OK) {
+        ESP_LOGE(PROC_TAG, "Mixer direction write failed (%s)", esp_err_to_name(err));
+        set_relay(RELAY_MIXER, false);
+        return false;
+    }
+    return true;
 }
 
 /* Update the elapsed-time label on the Run Auto screen (HH:MM:SS). */
@@ -83,19 +108,19 @@ static void update_time_display(void)
     }
 }
 
-/* Update the mixer phase label (RUN/WAIT MM:SS) — only active during DRYING. */
+/* Update the mixer direction/phase label during PRESSING and DRYING. */
 static void update_mixer_display(void)
 {
     if (!uic_lblMixerStatus) return;
     char buf[20];
-    if (s_state != PROC_DRYING) {
+    if (s_state != PROC_PRESSING && s_state != PROC_DRYING) {
         snprintf(buf, sizeof(buf), "--");
     } else {
         int64_t phase_s = (esp_timer_get_time() - s_mixer_phase_start_us) / 1000000LL;
         int m = (int)(phase_s / 60);
         int s = (int)(phase_s % 60);
         if (s_mixer_running) {
-            snprintf(buf, sizeof(buf), "RUN  %02d:%02d", m, s);
+            snprintf(buf, sizeof(buf), "%s %02d:%02d", s_mixer_reverse ? "REV" : "FWD", m, s);
         } else {
             snprintf(buf, sizeof(buf), "WAIT %02d:%02d", m, s);
         }
@@ -120,6 +145,10 @@ static void set_status(const char *text)
 /* Turn all relays off (hardware + indicators). */
 static void all_off_with_ui(void)
 {
+    esp_err_t mixer_err = pcf8575_set_mixer_direction(MIXER_DIRECTION_OFF);
+    if (mixer_err != ESP_OK) {
+        ESP_LOGE(PROC_TAG, "Mixer direction OFF write failed (%s)", esp_err_to_name(mixer_err));
+    }
     esp_err_t err = pcf8575_set_all_relays(0x00);
     if (err != ESP_OK) {
         ESP_LOGE(PROC_TAG, "all-relays-off write failed (%s)", esp_err_to_name(err));
@@ -163,22 +192,24 @@ static void enter_state(proc_state_t new_state)
         set_relay(RELAY_SUMP_PUMP,   false);  /* tank just filled; tick_input_tank takes over */
         set_relay(RELAY_TOP_GATE,    true);   /* open mixer upper gate to receive pressed solids */
         set_relay(RELAY_SCREW_PRESS, true);
+        set_relay(RELAY_HEATER,      true);   /* begin preheating while solids are pressed */
         s_refill_delay_us      = (int64_t)(app_settings_get_refill_delay_min() * 60.0f * 1e6f);
         s_refill_wait_start_us = s_state_enter_us;  /* pump is off; start counting down to next refill */
-        set_status("SCREW PRESSING");
+        s_mixer_phase_start_us = s_state_enter_us;
+        s_mixer_run_start_us   = 0;
+        s_mixer_running        = false;
+        s_mixer_reverse        = false;
+        s_mixer_interval_us = (int64_t)(app_settings_get_mixer_interval_min() * 60.0f * 1e6f);
+        s_mixer_run_us = (int64_t)(app_settings_get_mixer_run_time_min() * 60.0f * 1e6f);
+        s_mixer_direction_us = (int64_t)(app_settings_get_mixer_direction_time_min() * 60.0f * 1e6f);
+        set_status("PREHEAT + PRESSING");
         break;
 
     case PROC_DRYING:
         set_relay(RELAY_SCREW_PRESS, false);
         set_relay(RELAY_TOP_GATE,    false);  /* close mixer upper gate – mixer is full */
         set_relay(RELAY_SUMP_PUMP,   false);  /* stop input tank refill during drying */
-        set_relay(RELAY_MIXER,       false);  /* reset; tick_mixer restarts cycle from scratch */
-        set_relay(RELAY_HEATER,      true);
-        s_mixer_phase_start_us = s_state_enter_us;
-        s_mixer_running        = false;
-        /* Cache timer durations once */
-        s_mixer_interval_us = (int64_t)(app_settings_get_mixer_interval_min() * 60.0f * 1e6f);
-        s_mixer_run_us      = (int64_t)(app_settings_get_mixer_run_time_min()  * 60.0f * 1e6f);
+        set_relay(RELAY_HEATER,      true);   /* continue preheating through drying */
         s_drying_us         = (int64_t)(app_settings_get_drying_time_min()     * 60.0f * 1e6f);
         set_status("DRYING");
         break;
@@ -186,7 +217,9 @@ static void enter_state(proc_state_t new_state)
     case PROC_DISCHARGING:
         set_relay(RELAY_HEATER,      false);
         set_relay(RELAY_BOTTOM_GATE, true);
-        set_relay(RELAY_MIXER,       true);   /* run mixer to sweep out dry solids */
+        s_mixer_running = false;
+        s_mixer_reverse = false;
+        set_mixer_outputs(MIXER_DIRECTION_FORWARD);
         s_discharge_us = (int64_t)(app_settings_get_discharge_time_min() * 60.0f * 1e6f);
         set_status("DISCHARGING");
         break;
@@ -194,7 +227,7 @@ static void enter_state(proc_state_t new_state)
 }
 
 /* ------------------------------------------------------------------ */
-/* Periodic mixer cycle (call each tick during DRYING only)           */
+/* Periodic mixer cycle (call each tick during PRESSING and DRYING)   */
 /* Mixer runs every mixer_interval for mixer_run_time, then pauses.   */
 /* ------------------------------------------------------------------ */
 
@@ -204,15 +237,29 @@ static void tick_mixer(void)
 
     if (!s_mixer_running) {
         if ((now - s_mixer_phase_start_us) >= s_mixer_interval_us) {
-            s_mixer_running        = true;
-            s_mixer_phase_start_us = now;
-            set_relay(RELAY_MIXER, true);
+            if (set_mixer_outputs(MIXER_DIRECTION_FORWARD)) {
+                s_mixer_running = true;
+                s_mixer_reverse = false;
+                s_mixer_run_start_us = now;
+                s_mixer_phase_start_us = now;
+            }
         }
     } else {
-        if ((now - s_mixer_phase_start_us) >= s_mixer_run_us) {
+        if ((now - s_mixer_run_start_us) >= s_mixer_run_us) {
+            set_mixer_outputs(MIXER_DIRECTION_OFF);
             s_mixer_running        = false;
             s_mixer_phase_start_us = now;
-            set_relay(RELAY_MIXER, false);
+        } else if ((now - s_mixer_phase_start_us) >= s_mixer_direction_us) {
+            mixer_direction_t next_direction = s_mixer_reverse ?
+                MIXER_DIRECTION_FORWARD : MIXER_DIRECTION_REVERSE;
+            if (set_mixer_outputs(next_direction)) {
+                s_mixer_reverse = !s_mixer_reverse;
+                s_mixer_phase_start_us = now;
+            } else {
+                set_mixer_outputs(MIXER_DIRECTION_OFF);
+                s_mixer_running = false;
+                s_mixer_phase_start_us = now;
+            }
         }
     }
 }
@@ -279,6 +326,7 @@ static void process_task(void *arg)
             break;
 
         case PROC_PRESSING:
+            tick_mixer();         /* prevent solids from accumulating at the mixer inlet */
             tick_input_tank();   /* maintain input tank level while screw press runs */
             if (pcf8575_get_sensor_cached(SENSOR_MIXER_UPPER)) {
                 /* Mixer is full of solids – close upper gate, begin drying */
